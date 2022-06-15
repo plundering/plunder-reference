@@ -1,0 +1,47 @@
+= [addEf free fx ef]
++ free
+= 0      (len fx, NIL, snoc fx ef )
+= 1,f,fs (f,      fs,  put fx f ef)
+
+= [delEf free fx idx]
+| if [eql len|fx inc|idx]
+  , free [take idx fx]
+, CONS idx free
+, put fx idx 0
+
+[secs n]=[lsh n 32]
+
+! | eql {3 NIL 5,4,3,2}
+  | addEf NIL 5,4,3 2
+! | eql (1, CONS 2 NIL, {5 9 0})
+  | addEf [CONS 1][CONS 2 NIL] 5,0,0 9
+
+; Addr > (Addr > Key > Ship)
+= [pong parent id]
+. NIL {{0 id}} {{recv id {parent}}}
+? [loop free keys fx reqId response]
+| if [neq 0 reqId]
+  * free,fx | delEf free fx reqId
+  | loop free keys fx
+* _,msg  | response
+| if [eql msg %die]
+  | loop NIL {} {} ;shutdown
+* _,free,fx | addEf free fx {send id parent msg}
+| loop free keys fx
+
+= pingtest
+. {} {next}
+& [_ _ _ myId]
+. {{0 myId}} {next}
+& [_ _ _ pongId]
+@ pongFun | pong myId pongId
+. {{0 myId}} {{heed pongFun}}
+& [_ _ _ _]
+. {{0 myId}} {{send myId pongId %hello}}
+& [_ _ _ _]
+. {{0 myId}} {{recv myId {pongId}}}
+& [_ _ _ resp]
+| trk resp
+. {{0 myId}} {{send myId pongId %die}}
+& [_ _ _ _]
+0

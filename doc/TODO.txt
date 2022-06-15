@@ -1,0 +1,134 @@
+Macros
+======
+
+-   Implement command macros.
+
+    Macros currently only work on expressions, but it would be useful
+    to have command-macros as well.
+
+    Command macros should also be able to directly modify the environment,
+    the macros table, and maybe the requests table.
+
+-   Macros have access to the macro-table.
+
+    By the "macro-table", I mean the `(Map Text Val)` that  maps runs
+    to macro-functions.
+
+    Having access to the macro-table allows macros to explicitly
+    macro-expand certain sub-expressions, so that it can do analysis
+    on them.
+
+-   Macros have access to lexical scope
+
+    This requires the complecting of name resolution and parsing, but
+    should be possible.
+
+-   Consider using `,,,` or one-item-per-line row literals.
+
+    ',' is hard to see, and the syntax rules are unintuitive.
+    For example, the following two expressions are interepreted in
+    totally different ways.  This is confusing.
+
+        , f x  ==>  {f x}
+
+        , f x
+        , f x  ==>  {(f x) (f x)}
+
+Data Jets
+=========
+
+-   Rows should use tag 0 (like lambdas)
+
+    `{%x %y %z}=((0 0 4 0) %x %y %z)`
+
+-   Tabs should also use tag 0.
+
+    ```
+    %{x='a' y='b' z='c'}
+        ==>
+    ([0 0 4 {%x %y %z}] %a %b %c)`
+    ```
+
+-   Bars should use tag `1` and be a single natural with the high-bit set:
+
+    ```
+    BX""     = (0 1 1 1)
+    BX"00"   = (0 1 1 256)
+    BX"ff"   = (0 1 1 511)
+    BX"0000" = (0 1 1 65536)
+    ```
+
+These changes will decrease jam-size of data jets.  In particular,
+sharing the same tag for rows and tabs means that the law-header `(0 0
+n)` will be shared between the tab and the key-set:
+
+    | [0 0 4]
+       | [0 0 4] 0
+       %x %y %z
+    %a %b %c
+
+
+alpha2
+======
+
+- TODO Remove `Backend` abstraction and work directly with `Plun.Val`.
+
+    This kills all hope of resurecting the C runtime system in the
+    short-term, but should massively simplify the codebase.
+
+    This is a reference implementation and it really needs to be simple
+    and clean.
+
+    Once Rex and Sire are nailed down, it should be pretty easy to just
+    implement those directly in C.  Also, it's just painful to maintain
+    C code when the designs are constantly changing.
+
+    -   Rex can be implemented fairly trivially with a recursive-decent
+        parser.
+
+    -   Parsing rex into Sire with macro expansion and name-resolution
+        is easy.  Should be doable in a single large, recursive function.
+
+    -   Compiling Sire into Plunder and loading the values will be easy
+        with direct access to runtime internals.
+
+    -   A boostreapping implementation doesn't need good error messages.
+
+    -   A boostreapping implementation doesn't need a printer.
+
+    -   A boostreapping implementation doesn't need any scaffolding
+        for error-handling.  It can just complain and kill the process.
+
+    -   Sire-in-Sire can provide those things (parsing with errors, printing, etc)
+
+alpha3
+======
+
+- TODO Get mandelbrot code running correctly.
+- TODO Update `Bod` printer (!no !more !of !this)
+- Separate Val/Bod from Sire and name it.
+
+
+alpha3
+======
+
+- Inline Lambdas: (x!x 3)          := 3
+- Static Lambdas: (x!![add x x] 3) := 6
+- Lazy Loading
+- Real pretty-printing framework
+    (instead of nonsense try-every-way brute force system)
+
+Minor Changes
+=============
+
+- All command runes should be two-characters (except =)
+
+Macros
+======
+
+- Macroify Pattern Matching
+- Macroify Cores
+- `*` macro supports tabs.
+- Support other types of pattern matching.
+- Composite Pattern matching (multiple forms)
+- \cases syntax

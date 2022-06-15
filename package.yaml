@@ -1,0 +1,162 @@
+name:                plunder
+version:             0.1.0.0
+license:             AGPL
+author:              "Plunder Authors"
+maintainer:          "plun@pqrs.me"
+copyright:           "2021 Plunder Authors"
+
+cc-options: -Wall -O3
+
+library:
+  source-dirs: lib
+
+executables:
+  rex:
+    main: Main.hs
+    source-dirs: exe/rex
+    dependencies:
+      - plunder
+
+  sire:
+    main: Main.hs
+    source-dirs: exe/sire
+    dependencies:
+      - plunder
+      - rainbow
+      - bytestring
+
+  server:
+    main: Main.hs
+    source-dirs: exe/server
+    ghc-options: "-O2 -threaded -rtsopts -with-rtsopts=-N"
+    dependencies:
+      - plunder
+
+tests:
+  natty-tests:
+    source-dirs: test/natty
+    main: Main.hs
+    ghc-options: "-O2 -threaded -rtsopts -with-rtsopts=-N"
+    dependencies:
+      - base
+      - bytestring
+      - plunder
+      - QuickCheck
+      - text
+      - vector
+
+  jar-tests:
+    source-dirs: test/jar
+    main: Main.hs
+    ghc-options: "-O2 -threaded -rtsopts -with-rtsopts=-N"
+    dependencies:
+      - base
+      - bytestring
+      - plunder
+      - QuickCheck
+      - text
+      - vector
+
+  rex-tests:
+    source-dirs: test/rex
+    main: Main.hs
+    dependencies:
+      - plunder
+
+benchmarks:
+  natty-bench:
+    source-dirs: bench/natty
+    main: Main.hs
+    ghc-options: "-O2 -threaded -rtsopts -with-rtsopts=-N"
+    dependencies:
+      - criterion
+      - plunder
+
+dependencies:
+- base
+- base16-bytestring
+- base58-bytestring
+- blake3
+- bytestring
+- classy-prelude
+- conduit
+- containers
+- deepseq
+- directory
+- ed25519
+- entropy
+- exceptions
+- ghc-prim
+- hashable
+- hashtables
+- heap
+- integer-gmp
+- lmdb
+- megaparsec
+- memory
+- mtl
+- optics
+- optparse-applicative
+- pretty-show
+- primitive
+- rainbow
+- random
+- random-shuffle
+- resourcet
+- stm-chans
+- stm-delay
+- tasty
+- tasty-golden
+- text
+- text-builder
+- time
+- transformers
+- unboxed-ref
+- unix
+- utf8-string
+- vector
+
+default-extensions:
+- ApplicativeDo
+- BangPatterns
+- BlockArguments
+- DataKinds
+- DefaultSignatures
+- DeriveAnyClass
+- DeriveDataTypeable
+- DeriveFoldable
+- DeriveGeneric
+- DeriveTraversable
+- DerivingStrategies
+- EmptyCase
+- EmptyDataDecls
+- FlexibleContexts
+- FlexibleInstances
+- FunctionalDependencies
+- GADTs
+- GeneralizedNewtypeDeriving
+- LambdaCase
+- MagicHash
+- MultiParamTypeClasses
+- MultiWayIf
+- NamedFieldPuns
+- NoImplicitPrelude
+- NumericUnderscores
+- OverloadedLabels
+- OverloadedStrings
+- PartialTypeSignatures
+- PatternSynonyms
+- QuasiQuotes
+- Rank2Types
+- RankNTypes
+- RecordWildCards
+- ScopedTypeVariables
+- StandaloneDeriving
+- TemplateHaskell
+- TupleSections
+- TypeApplications
+- TypeFamilies
+- TypeOperators
+- UndecidableInstances
+- UnicodeSyntax
+- ViewPatterns

@@ -1,0 +1,11 @@
+; Raw ioctl names
+next=1
+heed=2
+omit=3
+bury=4
+kill=5
+send=6
+recv=7
+wait=8
+when=9
+rand=10
