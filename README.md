@@ -4,6 +4,61 @@ Plunder Reference Implementation
 This is a reference-implementation for the stack of technologies needed
 to bootstrap the Plunder system.
 
+
+Mission Statement
+=================
+
+45 years after the release of the Apple II, we have regressed and reneged
+on the promise of user empowerment. Users of computers are not in control
+of their computation because they do not understand what their computers
+are doing, leading to code which is not in the user's interest. This is
+true even in the case of Free/Libre Software: Freedom 1 is the freedom to
+study and change a program to make it work as you wish, but sufficiently
+complex code makes doing either infeasible. Does Firefox or GCC actually
+comply with the spirit of Freedom 1?
+
+The code run on user's computers then changes, to add unused features
+or to be even more user hostile, and being open source is not a defense
+against this. Product designers usually deride any complaints about this
+process as "change aversion". But aversion to these changes is correct:
+changes are an externally that product managers and designers force on
+users, where change often makes the product worse for the user, while
+the product manager or engineer can reap the benefits by Demonstrating
+Impact to a promotion committee.
+
+Open standards don't entirely help, because they change over time. Large
+companies have more motivation and time to spend on bureaucratic standards
+committees. Because of the bias towards shipping new features, these
+open standards become even more complex, and that complexity acts as a
+moat to prevent reimplementation. Will there ever be another complete
+web rendering engine after WebKit/Blink? It seems unlikely.
+
+To recover freedom, we must have a system that is radically
+understandable. A smart user-programmer must be able to understand the
+system from top to bottom. We need a computational formalism that:
+
+-   The low level formalism must be so simple that it is obviously
+    correct and that there's no place for misunderstandings or divergent
+    behaviour. It should be possible for any programmer to build a
+    decent-enough interpreter for the system.
+
+-   The formalism must be directly inspectable, including from inside the
+    formalism: if I give you a value, you should be able to inspect it
+    to see what it does. Binary artifacts in complex formats are not
+    inspectable.
+
+-   The formalism must never change, as it will then be susceptible to
+    embraced/extended/extinguished.
+
+-   For every computation, the formalism must have a single
+    deterministic answer. Divergent behaviour between implementations
+    isn't just a security or privacy problem, it means we can't rely on
+    portability between interpreters.
+
+
+Running and Understanding the System
+====================================
+
 You will need to install `lmdb` and Haskell's `stack` to build this.
 
     $ stack install --fast
