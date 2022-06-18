@@ -38,6 +38,7 @@ import Control.Monad.State          (MonadState, StateT, evalStateT, get, gets,
                                      modify', put, runStateT)
 import Crypto.Sign.Ed25519          (PublicKey(..), SecretKey(..),
                                      createKeypair, toPublicKey)
+import Data.IntMap                  (IntMap)
 import Numeric.Natural              (Natural)
 import Optics
 import Optics.At
@@ -58,6 +59,7 @@ import Server.Types.Logging
 import Server.Types.Machine
 
 import qualified Data.Heap     as H
+import qualified Data.IntMap   as IM
 import qualified Data.Map      as M
 import qualified Data.Sequence as Q
 import qualified Data.Set      as S
@@ -85,101 +87,105 @@ allM fun (x:xs) = fun x >>= \case
 
 -- -----------------------------------------------------------------------
 
-data Machine = MACHINE {
-  machineName                :: MachineName,
+type LocalToReqs = Map LocalAddress (Seq RequestHandle)
 
-  machineNextLoggedTid             :: Nat,
-  machineNextUnloggedTid :: Nat,
+data Machine = MACHINE {
+  machineName                       :: MachineName,
+
+  machineNextLoggedPidx             :: Int,
+  machineNextUnloggedPidx           :: Int,
+
+  -- Logged process indexes which are free to be reused.
+  machineLoggedFreelist             :: Seq ProcessIdx,
 
   -- Processes which we persist in LogBatches.
-  machineLoggedProcesses        :: Map ThreadId Process,
+  machineLoggedProcesses            :: IntMap Process,
 
   -- Processes which are transient and go away.
-  machineUnloggedProcesses      :: Map ThreadId Process,
+  machineUnloggedProcesses          :: IntMap Process,
 
   -- Keys and Identity --------------------------------------------------------
 
   -- Currently used derived public keys based on secret key.
-  machineEdClaimToPub            :: Map Key Pub,
+  machineEdClaimToPub               :: Map Key Pub,
 
-  -- Index of which public key corresponds to which process. We don't want there
-  -- to be multiple processes, but the model allows for it and there's no way to
-  -- ban it in model. So we always send to the process with the lowest ThreadId
-  -- for a pubkey. This metric is a) simple, b) deterministic on replay, c)
-  -- usually not what the user would want to disincentivize users from having
-  -- processes with multiple keys.
-  machineEdPubToProcess         :: Map Pub (Set ProcessId),
+  -- Index of which public key corresponds to which process. We don't want
+  -- there to be multiple processes, but the model allows for it and there's no
+  -- way to ban it in model. So we always send to the process with the lowest
+  -- ProcessIdx for a pubkey. This metric is a) simple, b) deterministic on
+  -- replay, c) usually not what the user would want to disincentivize users
+  -- from having processes with multiple keys.
+  machineEdPubToProcess             :: Map Pub (Set ProcessId),
 
-  machineLocalClaimToProcess :: Map LocalAddress (Set ProcessId),
+  machineLocalClaimToProcess        :: Map LocalAddress (Set ProcessId),
 
   -- When an process asks for localNext, that address is put here temporarily
   -- before it's put in #localClaimToThread by the process.
-  machineUnclaimedLocalAddressess :: Set LocalAddress,
+  machineUnclaimedLocalAddressess   :: Set LocalAddress,
 
-  machineNextLocalAddressBits :: Nat,
+  machineNextLocalAddressBits       :: Nat,
 
   -- Request Queuing ----------------------------------------------------------
 
   --
-  machineOpenNextRequests :: Map RequestHandle (),
+  machineOpenNextRequests           :: Map RequestHandle (),
 
   -- Bury requests waiting on something to happen.
-  machineOpenBurys :: Map RequestHandle LocalAddress,
+  machineOpenBurys                  :: Map RequestHandle LocalAddress,
 
   -- Bury requests which have fired but which have not been executed yet.
-  machinePendingBurys :: Map RequestHandle BuryWhy,
+  machinePendingBurys               :: Map RequestHandle BuryWhy,
 
   -- Open bury requests by address being monitored.
-  machineBuryByAddr :: Map LocalAddress (Set RequestHandle),
+  machineBuryByAddr                 :: Map LocalAddress (Set RequestHandle),
 
   -- A kill request receives a response once there are no processes,
   -- terminating any existing matching processes as necessary.
-  machineOpenKills :: Map RequestHandle (LocalAddress, Val),
+  machineOpenKills                  :: Map RequestHandle (LocalAddress, Val),
 
   -- A list of sends which have successfully been delivered. A delivered send
   -- is not invalid or open. It was delivered and is valid, even if it becomes
   -- invalid in the future.
-  machineDeliveredLocalSends :: Map RequestHandle LocalSendRep,
+  machineDeliveredLocalSends        :: Map RequestHandle LocalSendRep,
 
-  machineOpenLocalRecvs      :: Map RequestHandle LocalRecvRep,
-  machineOpenLocalSends      :: Map RequestHandle LocalSendRep,
+  machineOpenLocalRecvs             :: Map RequestHandle LocalRecvRep,
+  machineOpenLocalSends             :: Map RequestHandle LocalSendRep,
 
   -- All open, valid local sends by destination and source. Used for fast
   -- lookups.
-  machineLocalSendQueue      :: Map LocalAddress (Map LocalAddress
-                                                 (Seq RequestHandle)),
+  machineLocalSendQueue             :: Map LocalAddress LocalToReqs,
 
-  machineLocalRecvsByAddr :: Map LocalAddress (Set RequestHandle),
+  machineLocalRecvsByAddr           :: Map LocalAddress (Set RequestHandle),
 
   -- A local send or recv is invalid if it's trying to send on or listen to a
   -- localaddress that isn't claimed. In sane programs, this should never
   -- happen. But this degenerate state must explicitly be handled as part of
   -- the formalism because nothing prevents it.
-  machineInvalidLocalRecvs   :: Map RequestHandle LocalRecvRep,
+  machineInvalidLocalRecvs          :: Map RequestHandle LocalRecvRep,
   machineInvalidLocalRecvsByProcess :: Map ProcessId (Set RequestHandle),
-  machineInvalidLocalSends   :: Map RequestHandle LocalSendRep,
+  machineInvalidLocalSends          :: Map RequestHandle LocalSendRep,
   machineInvalidLocalSendsByProcess :: Map ProcessId (Set RequestHandle),
 
   -- Open forks.
-  machineOpenLoggedForks     :: Map RequestHandle Val,
-  machineOpenUnloggedForks   :: Map RequestHandle Val,
+  machineOpenLoggedForks            :: Map RequestHandle Val,
+  machineOpenUnloggedForks          :: Map RequestHandle Val,
 
   -- All timers that should fire in the future, ordered as a heap.
-  machineOpenTimers          :: H.MinHeap (Natural, RequestHandle),
+  machineOpenTimers                 :: H.MinHeap (Natural, RequestHandle),
 
   -- Generate values
-  machineOpenWhen :: Map RequestHandle (),
-  machineOpenRand :: Map RequestHandle (),
+  machineOpenWhen                   :: Map RequestHandle (),
+  machineOpenRand                   :: Map RequestHandle (),
 
   -- Logging -------------------------------------------------------------------
-  machineNextBatchNum        :: Nat,
+  machineNextBatchNum               :: Nat,
 
-  machineLastSnapshot        :: BatchNum,
+  machineLastSnapshot               :: BatchNum,
 
-  machineLmdbThread          :: LmdbThread,
+  machineLmdbThread                 :: LmdbThread,
 
   -- Input ---------------------------------------------------------------------
-  machineMachineQueue         :: TQueue MachineEvent
+  machineMachineQueue               :: TQueue MachineEvent
   }
 
 makeFieldLabels ''Machine
@@ -187,8 +193,9 @@ makeFieldLabels ''Machine
 newMachine :: TQueue MachineEvent -> LmdbThread -> MachineName -> Machine
 newMachine mq lmdbt tn = MACHINE {
   machineName = tn,
-  machineNextLoggedTid = 0,
-  machineNextUnloggedTid = 0,
+  machineNextLoggedPidx = 0,
+  machineNextUnloggedPidx = 0,
+  machineLoggedFreelist = mempty,
   machineLoggedProcesses = mempty,
   machineUnloggedProcesses = mempty,
   machineEdClaimToPub = mempty,
@@ -221,17 +228,26 @@ newMachine mq lmdbt tn = MACHINE {
   machineMachineQueue = mq
   }
 
-getRawNextThreadId :: LogType -> StateT Machine IO ThreadId
-getRawNextThreadId lt = do
-  let label = case lt of
-        Logged   -> #nextLoggedTid
-        Unlogged -> #nextUnloggedTid
-  num <- use label
-  modifying label (+1)
-  pure $ ThreadId num
+getNextProcessIndex :: LogType -> StateT Machine IO ProcessIdx
+getNextProcessIndex = \case
+  Unlogged -> do
+    num <- use #nextUnloggedPidx
+    modifying #nextUnloggedPidx (+1)
+    pure $ ProcessIdx num
+  Logged -> do
+    freelist <- use #loggedFreelist
+    case freelist of
+      Q.Empty -> do
+        -- No holes to fill in the Snapshot array.
+        num <- use #nextLoggedPidx
+        modifying #nextLoggedPidx (+1)
+        pure $ ProcessIdx num
+      (x Q.:<| xs) -> do
+        assign #loggedFreelist xs
+        pure x
 
 getNextProcessId :: LogType -> StateT Machine IO ProcessId
-getNextProcessId lt = (ProcessId lt) <$> getRawNextThreadId lt
+getNextProcessId lt = (ProcessId lt) <$> getNextProcessIndex lt
 
 getNextBatchNum :: StateT Machine IO BatchNum
 getNextBatchNum = do
@@ -241,6 +257,12 @@ getNextBatchNum = do
 
 -- -----------------------------------------------------------------------
 
+pidxInsert :: ProcessIdx -> v -> IntMap v -> IntMap v
+pidxInsert p v = IM.insert (unProcessIdx p)  v
+
+pidxDelete :: ProcessIdx -> IntMap v -> IntMap v
+pidxDelete = IM.delete . unProcessIdx
+
 bootNewMachine :: LmdbThread -> MachineName -> Val -> IO MachineHandle
 bootNewMachine lmdbt tn val = do
   thControlQ <- newTQueueIO
@@ -248,9 +270,9 @@ bootNewMachine lmdbt tn val = do
   pure $ MachineHandle{..}
   where
     start = do
-      tid <- getRawNextThreadId Logged
-      (changeset, process) <- liftIO $ buildInitialProcess tid val
-      modifying' #loggedProcesses (M.insert tid process)
+      pidx <- getNextProcessIndex Logged
+      (changeset, process) <- liftIO $ buildInitialProcess pidx val
+      modifying' #loggedProcesses (pidxInsert pidx process)
 
       buildReceipt changeset >>= \case
         Nothing      -> pure ()
@@ -280,7 +302,7 @@ replayMachine lmdbt replayFrom tn = do
           mainloop
         Just lb -> replayBatch first lb >> readUntilClosed False q
 
-    asProcess :: ThreadId -> ProcessId
+    asProcess :: ProcessIdx -> ProcessId
     asProcess = ProcessId Logged
 
     replayBatch :: Bool -> LogBatch -> StateT Machine IO ()
@@ -291,18 +313,12 @@ replayMachine lmdbt replayFrom tn = do
           -- We're replaying from the 0th LogBatch, and must replay all of
           -- history.
           replayBatch False lb
-        (BatchNum num, Just (Snapshot snapMap)) -> do
+        (BatchNum num, Just ss) -> do
           -- We're replaying from a LogBatch which has a snapshot, so load that
           -- into state.
-          assign' #nextLoggedTid $
-            case fromNullable $ map unThreadId $ M.keys snapMap of
-              Nothing -> 0
-              Just xs -> 1 + (maximum xs)
+          assign' #nextLoggedPidx $ snapshotNextProcessIndex ss
 
-          let snapList = M.toList snapMap
-          (changesets, processData) <- unzip <$>
-            (liftIO $ mapM reloadProcessSnapshot snapList)
-          assign' #loggedProcesses (M.fromList processData)
+          changesets <- loadSnapshot ss
 
           -- Replay all key events before all request parsing because those
           -- could be referenced by existing requests.
@@ -321,33 +337,35 @@ replayMachine lmdbt replayFrom tn = do
       forM_ executed $ \receipt -> do
         applyChangeset =<< case receipt of
           ReceiptInit{..} -> do
-            (changeset, process) <- liftIO $ buildInitialProcess initTid initVal
-            modifying' #loggedProcesses (M.insert initTid process)
+            (changeset, process) <- liftIO $
+              buildInitialProcess initPidx initVal
+            modifying' #loggedProcesses (pidxInsert initPidx process)
             pure changeset
 
           ReceiptFork{..} -> do
-            let handle = RequestHandle (ProcessId Logged forkReqTid) forkReqIdx
-            case forkAssignedTid of
+            let handle = RequestHandle (ProcessId Logged forkReqPidx) forkReqIdx
+            case forkAssignedPidx of
               Nothing -> do
                 use #openUnloggedForks <&> lookup handle >>= \case
                   Nothing -> error "No matching fork request?"
                   Just v  -> doRunResponse handle (Fork FOReplayUnlogged v)
-              Just assignedTid -> do
+              Just assignedPidx -> do
+                modifying' #loggedFreelist (filter (/= assignedPidx))
                 use #openLoggedForks <&> lookup handle >>= \case
                   Nothing -> error "No matching fork request?"
                   Just v -> do
-                    let a = asProcess assignedTid
+                    let a = asProcess assignedPidx
                     doRunResponse handle (Fork (FOLogged a) v)
 
           ReceiptVal{..}  ->
-            doRunResponse (RequestHandle (asProcess receiptTid) receiptIdx)
+            doRunResponse (RequestHandle (asProcess receiptPidx) receiptIdx)
                           (RunValue receiptVal)
 
           ReceiptRecv{..} -> do
             -- When there's a recv in the log, both the sender and the receiver
             -- were logged.
-            let senderHandle = RequestHandle (asProcess recvSendTid) recvSendIdx
-                recvHandle = RequestHandle (asProcess recvTid) recvIdx
+            let senderHandle = RequestHandle (asProcess recvSendPidx) recvSendIdx
+                recvHandle = RequestHandle (asProcess recvPidx) recvIdx
 
             use #openLocalSends <&> lookup senderHandle >>= \case
               Nothing -> error "No matching send for recv during replay."
@@ -357,13 +375,13 @@ replayMachine lmdbt replayFrom tn = do
                 doRunResponse recvHandle recv
 
           ReceiptKill{..} -> do
-            let handle = RequestHandle (asProcess killTidNotified) killIdx
+            let handle = RequestHandle (asProcess killPidxNotified) killIdx
             use #openKills <&> lookup handle >>= \case
               Nothing -> error "No matching kill request?"
               Just (victimAddress, reason) -> do
-                (loggedTids, allKillsets) <-
+                (loggedPidxs, allKillsets) <-
                   killAllProcessesMatching victimAddress
-                doRunResponse handle (RunKill reason loggedTids allKillsets)
+                doRunResponse handle (RunKill reason loggedPidxs allKillsets)
 
     doRunResponse handle req = runResponse handle req >>= \case
       Nothing    -> error "Empty response during replay."
@@ -375,6 +393,12 @@ replayMachine lmdbt replayFrom tn = do
       forM_ (M.keys buryByAddr) $ \addr -> do
         unless (M.member addr claimToProcess) $ do
           broadcastBury addr WhyMissing
+
+    snapshotNextProcessIndex :: Snapshot -> Int
+    snapshotNextProcessIndex (Snapshot v) =
+      if V.null v
+      then 0
+      else V.length v + 1
 
 mainloop :: StateT Machine IO ()
 mainloop = do
@@ -413,7 +437,7 @@ performSnapshot = do
     bn <- getNextBatchNum
     writeTime <- getNanoTime
     ls <- use #lastSnapshot
-    ss <- buildSnapshot
+    ss <- saveSnapshot
     let lb = LogBatch bn writeTime ls (Just ss) []
 
     lmdbt <- use #lmdbThread
@@ -425,8 +449,6 @@ performSnapshot = do
     --putStrLn $ "Log entry: " ++ (tshow lb)
 
     assign #lastSnapshot bn
-  where
-    buildSnapshot = (Snapshot . (fmap (^. #noun))) <$> use #loggedProcesses
 
 -- Returns the next piece of work to perform, blocking if there isn't one.
 getNextWork :: StateT Machine IO Work -- (RequestNum, Response)
@@ -496,8 +518,8 @@ getNextWork = do
         -- process could spawn another process with the same address
         -- asynchronously. (even though they shouldn't. the formalism doesn't
         -- prevent it.)
-        (loggedTids, allKillsets) <- killAllProcessesMatching victimAddress
-        pure (RunKill reason loggedTids allKillsets)
+        (loggedPidxs, allKillsets) <- killAllProcessesMatching victimAddress
+        pure (RunKill reason loggedPidxs allKillsets)
 
     getLocalSend = do
       openLocalRecvs <- use #openLocalRecvs
@@ -532,12 +554,12 @@ getNextWork = do
                                 srSrc srDst
 
     getLoggedForks = check #openLoggedForks $ \v -> do
-      aid <- getNextProcessId Logged
-      pure $ Fork (FOLogged aid) v
+      pid <- getNextProcessId Logged
+      pure $ Fork (FOLogged pid) v
 
     getUnloggedForks = check #openUnloggedForks $ \v -> do
-      aid <- getNextProcessId Unlogged
-      pure $ Fork (FOUnlogged aid) v
+      pid <- getNextProcessId Unlogged
+      pure $ Fork (FOUnlogged pid) v
 
     getPendingBury = check #pendingBurys $ \bw -> do
       pure $ RunValue $ toNoun bw
@@ -558,7 +580,8 @@ getNextWork = do
 
     waitForAction :: StateT Machine IO (Maybe Work)
     waitForAction = do
-      use #loggedProcesses <&> M.null >>= \case
+      {- TODO: Must check unlogged processes too. -}
+      use #loggedProcesses <&> IM.null >>= \case
         True -> do
           -- Shutdown when all processes are gone.
           pure $ Just $ MachineCmd MachineEventImmediateShutdown
@@ -605,14 +628,15 @@ getNextLocal = do
           modifying' #unclaimedLocalAddressess (S.insert (LOCAL addr))
           pure addr
 
+atP = at . unProcessIdx
 
 runResponse :: RequestHandle -> Response
             -> StateT Machine IO (Maybe ExecChangeset)
-runResponse rn@(RequestHandle aid _) resp = do
+runResponse rn@(RequestHandle pid _) resp = do
   putStrLn $ "<" ++ (tshow rn) ++ ">: " ++ (tshow resp)
-  let label = case aid of
-        ProcessId Unlogged tid -> (#unloggedProcesses % at tid % _Just)
-        ProcessId Logged tid   -> (#loggedProcesses % at tid % _Just)
+  let label = case pid of
+        ProcessId Unlogged pidx -> (#unloggedProcesses % atP pidx % _Just)
+        ProcessId Logged pidx   -> (#loggedProcesses % atP pidx % _Just)
   join <$> zoomMaybe label (execResponse rn resp)
 
 -- The process does not have enough information to build out a receipt: it can't
@@ -624,15 +648,15 @@ buildReceipt cs = case cs ^. #processId of
   ProcessId Logged threadId -> case cs ^. #execEffect of
     EEInit{..} -> case initAid of
       -- If we try to build a receipt for an init, it's the first init.
-      ProcessId Logged tid -> pure $ Just $ ReceiptInit tid initVal
+      ProcessId Logged pidx -> pure $ Just $ ReceiptInit pidx initVal
       ProcessId Unlogged _ ->
         error "Attempted to initialize log with an unlogged process!"
     EEDefault{..} -> pure $ Just $
       ReceiptVal threadId execIdx execVal
     EEForked{..} -> pure $ Just $ ReceiptFork threadId forkedRequestIdx $
       case (processProcessId forkedProcess) of
-        ProcessId Unlogged _         -> Nothing
-        ProcessId Logged assignedTid -> Just assignedTid
+        ProcessId Unlogged _          -> Nothing
+        ProcessId Logged assignedPidx -> Just assignedPidx
     EELocalRecv{..} -> do
       -- When we build a receipt for a local send, we want to be able to
       -- point to the local send in the list of the list of outstanding
@@ -641,9 +665,9 @@ buildReceipt cs = case cs ^. #processId of
       mybOpen <- use #openLocalSends <&> lookup causingSend
       let (RequestHandle causeAid causeReqIdx) = causingSend
       case (mybOpen, causeAid) of
-        (Just _, ProcessId Logged causeTid) ->
+        (Just _, ProcessId Logged causePidx) ->
           -- The sender was logged and is still open so it can be referred to.
-          pure $ Just $ ReceiptRecv threadId recvRequestIdx causeTid causeReqIdx
+          pure $ Just $ ReceiptRecv threadId recvRequestIdx causePidx causeReqIdx
         (_, _) ->
           pure $ Just $ ReceiptVal threadId recvRequestIdx recvVal
     EEKilled{..} -> do
@@ -739,76 +763,78 @@ applyChangeset cs = do
       -- The process has halted. All the claim and request cleanup happened
       -- above, but we need to clean up the process separately.
       putStrLn $ "Cleaning up after process " ++ (tshow csAid)
-      let (label, id) = case csAid of
-            ProcessId Logged id   -> (#loggedProcesses, id)
-            ProcessId Unlogged id -> (#unloggedProcesses, id)
-      modifying' label (M.delete id)
+      case csAid of
+        ProcessId Unlogged idx -> do
+          modifying' #unloggedProcesses (pidxDelete idx)
+        ProcessId Logged idx   -> do
+          modifying' #loggedProcesses (pidxDelete idx)
+          modifying' #loggedFreelist (appendSeq idx)
   where
     registerForkedProcess s ec = do
-      let (ProcessId lt tid) = processProcessId s
+      let (ProcessId lt pidx) = processProcessId s
           label = case lt of
             Logged   -> #loggedProcesses
             Unlogged -> #unloggedProcesses
-      modifying' label (M.insert tid s)
+      modifying' label (pidxInsert pidx s)
       applyChangeset ec
 
 -- TODO: Next up: dealing with claims. claims are the next big deal.
 
 registerClaim :: ProcessId -> Claim -> StateT Machine IO ()
 
-registerClaim aid (LocalClaim i) = do
+registerClaim pid (LocalClaim i) = do
   modifying' #unclaimedLocalAddressess (S.delete i)
-  modifying' (#localClaimToProcess % at i % non' _Empty) (S.insert aid)
+  modifying' (#localClaimToProcess % at i % non' _Empty) (S.insert pid)
 
   -- For every invalid recv from this thread, if we registered the address that
   -- made it invalid, we have to make it valid.
   invalidRecvByProcess <- use #invalidLocalRecvsByProcess
-  case lookup aid invalidRecvByProcess of
+  case lookup pid invalidRecvByProcess of
     Nothing   -> pure ()
     Just reqs -> do
       localRecvs <- use #invalidLocalRecvs
       let (nowValid, stillInvalid) =
             partition (isRecvValid localRecvs) $ S.toList reqs
       forM_ nowValid (moveItem #invalidLocalRecvs #openLocalRecvs)
-      assign' (#invalidLocalRecvsByProcess % at aid % non' _Empty) $
+      assign' (#invalidLocalRecvsByProcess % at pid % non' _Empty) $
         S.fromList stillInvalid
 
   invalidSendByProcess <- use #invalidLocalSendsByProcess
-  case lookup aid invalidSendByProcess of
+  case lookup pid invalidSendByProcess of
     Nothing -> pure ()
     Just reqs -> do
       localSends <- use #invalidLocalSends
       let (nowValid, stillInvalid) =
             partition (isSendValid localSends) $ S.toList reqs
       forM_ nowValid (moveItem #invalidLocalSends #openLocalSends)
-      assign' (#invalidLocalSendsByProcess % at aid % non' _Empty) $
+      assign' (#invalidLocalSendsByProcess % at pid % non' _Empty) $
         S.fromList stillInvalid
   where
     isRecvValid localRecvs rh = case lookup rh localRecvs of
-      Nothing -> error "#invalidLocalRecvs and #invalidLocalRecvsByTid disagree"
+      Nothing -> error "#invalidLocalRecvs and #invalidLocalRecvsByPidx disagree"
       Just LocalRecvRep{rrDst} -> rrDst == i
 
     isSendValid localSends rh = case lookup rh localSends of
-      Nothing -> error "#invalidLocalSends and #invalidLocalSendsByTid disagree"
+      Nothing -> error "#invalidLocalSends and #invalidLocalSendsByPidx disagree"
       Just LocalSendRep{srSrc} -> srSrc == i
 
 
-registerClaim aid (Ed25519Blake3Claim k) = do
+registerClaim pid (Ed25519Blake3Claim k) = do
   edClaimToPub <- use #edClaimToPub
   case lookup k edClaimToPub of
     Just pub  ->
-      modifying' (#edPubToProcess % at pub % _Just) (S.insert aid)
+      modifying' (#edPubToProcess % at pub % _Just) (S.insert pid)
     Nothing -> do
       let pub = secretToPublic k
       modifying' (#edClaimToPub) (M.insert k pub)
-      modifying' (#edPubToProcess) (M.insert pub (S.singleton aid))
+      modifying' (#edPubToProcess) (M.insert pub (S.singleton pid))
 
   -- TODO: Do something like the LocalClaim moving invalid claim case.
 
 unregisterClaim :: ProcessId -> Claim -> Maybe BuryWhy -> StateT Machine IO ()
 
-unregisterClaim aid (LocalClaim i) buryWhy = do
-  modifying' (#localClaimToProcess % at i % non' _Empty) (S.delete aid)
+unregisterClaim pid (LocalClaim i) buryWhy = do
+  modifying' (#localClaimToProcess % at i % non' _Empty) (S.delete pid)
 
   stillValidClaims <- (member i) <$> use #localClaimToProcess
   unless stillValidClaims $ do
@@ -830,12 +856,12 @@ unregisterClaim aid (LocalClaim i) buryWhy = do
       Nothing  -> WhyMissing
       Just why -> why
 
-unregisterClaim aid (Ed25519Blake3Claim k) _ = do
+unregisterClaim pid (Ed25519Blake3Claim k) _ = do
   edClaimToPub <- use #edClaimToPub
   case lookup k edClaimToPub of
     Nothing  -> error "Process tried to unregister a non-existent claim"
     Just pub -> do
-      modifying' (#edPubToProcess % at pub % non' _Empty) (S.delete aid)
+      modifying' (#edPubToProcess % at pub % non' _Empty) (S.delete pid)
       error "TODO: Need to do real cleanup here when implementing remotes."
 
 addRequest :: (RequestHandle, Request) -> StateT Machine IO ()
@@ -856,11 +882,11 @@ addRequest (reqH, LocalBury addr) = do
   modifying' (#openBurys) (M.insert reqH addr)
   modifying' (#buryByAddr % at addr % non' _Empty) (S.insert reqH)
 
-addRequest (reqH@(RequestHandle aid _), LocalSend rep@LocalSendRep{..}) = do
-  doesProcessClaimLocal aid srSrc >>= \case
+addRequest (reqH@(RequestHandle pid _), LocalSend rep@LocalSendRep{..}) = do
+  doesProcessClaimLocal pid srSrc >>= \case
     False -> do
       modifying' (#invalidLocalSends) (M.insert reqH rep)
-      modifying' (#invalidLocalSendsByProcess % at aid % non' _Empty)
+      modifying' (#invalidLocalSendsByProcess % at pid % non' _Empty)
                  (S.insert reqH)
     True  -> do
       modifying' (#openLocalSends) (M.insert reqH rep)
@@ -868,11 +894,11 @@ addRequest (reqH@(RequestHandle aid _), LocalSend rep@LocalSendRep{..}) = do
                   at srSrc  % non' _Empty)
                  (appendSeq reqH)
 
-addRequest (reqH@(RequestHandle aid _), LocalRecv rep@LocalRecvRep{..}) = do
-  doesProcessClaimLocal aid rrDst >>= \case
+addRequest (reqH@(RequestHandle pid _), LocalRecv rep@LocalRecvRep{..}) = do
+  doesProcessClaimLocal pid rrDst >>= \case
     False -> do
       modifying' (#invalidLocalRecvs) (M.insert reqH rep)
-      modifying' (#invalidLocalRecvsByProcess % at aid % non' _Empty)
+      modifying' (#invalidLocalRecvsByProcess % at pid % non' _Empty)
                  (S.insert reqH)
     True  -> do
       modifying' (#openLocalRecvs) (M.insert reqH rep)
@@ -906,16 +932,16 @@ removeRequest (reqH, LocalBury addr) = do
   modifying' (#pendingBurys) (M.delete reqH)
   modifying' (#buryByAddr % at addr % non' _Empty) (S.delete reqH)
 
-removeRequest (reqH@(RequestHandle aid _), LocalSend rep@LocalSendRep{..}) = do
+removeRequest (reqH@(RequestHandle pid _), LocalSend rep@LocalSendRep{..}) = do
   modifying' (#deliveredLocalSends) (M.delete reqH)
   modifying' (#invalidLocalSends) (M.delete reqH)
-  modifying' (#invalidLocalSendsByProcess % at aid % non' _Empty) (S.delete reqH)
+  modifying' (#invalidLocalSendsByProcess % at pid % non' _Empty) (S.delete reqH)
   modifying' (#openLocalSends) (M.delete reqH)
   deleteLocalSend srDst srSrc reqH
 
-removeRequest (reqH@(RequestHandle aid _), LocalRecv rep@LocalRecvRep{..}) = do
+removeRequest (reqH@(RequestHandle pid _), LocalRecv rep@LocalRecvRep{..}) = do
   modifying' (#invalidLocalRecvs) (M.delete reqH)
-  modifying' (#invalidLocalRecvsByProcess % at aid % non' _Empty) (S.delete reqH)
+  modifying' (#invalidLocalRecvsByProcess % at pid % non' _Empty) (S.delete reqH)
   modifying' (#openLocalRecvs) (M.delete reqH)
   modifying' (#localRecvsByAddr % at rrDst % non' _Empty) (S.delete reqH)
 
@@ -938,16 +964,19 @@ removeRequets (reqH, Rand) = do
   modifying' (#openRand) (M.delete reqH)
 
 killAllProcessesMatching :: LocalAddress
-                         -> StateT Machine IO ([ThreadId], [KilledChangeset])
+                         -> StateT Machine IO ([ProcessIdx], [KilledChangeset])
 killAllProcessesMatching victim = do
   -- Get the processes to kill and remove their claims.
   processIds <- (#localClaimToProcess % at victim % non' _Empty) <<.= S.empty
 
-  let (loggedIds, unloggedIds) =
-        partitionEithers $ fmap processIdToThreadId $ S.toList processIds
+  let (loggedIds, unloggedIds) = partitionEithers $
+                                 fmap processIdToProcessIdx $
+                                 S.toList processIds
 
-  logged   <- forM loggedIds (getAndRemove #loggedProcesses)
-  unlogged <- forM unloggedIds (getAndRemove #unloggedProcesses)
+  logged   <- forM loggedIds $
+    \(ProcessIdx idx) -> (getAndRemove #loggedProcesses idx)
+  unlogged <- forM unloggedIds $
+    \(ProcessIdx idx) -> (getAndRemove #unloggedProcesses idx)
 
   loggedDelsets <- liftIO $ mapM killProcess logged
   unloggedDelsets <- liftIO $ mapM killProcess unlogged
@@ -964,6 +993,38 @@ broadcastBury la bw = do
       modifying' #openBurys (M.delete reqH)
       modifying' #pendingBurys (M.insert reqH bw)
 
+
+loadSnapshot :: Snapshot
+             -> StateT Machine IO [ReloadChangeset]
+loadSnapshot (Snapshot v) = do
+  (rcs, logged) <- foldM load ([], IM.empty) $ zip [0..] $ V.toList v
+  assign' #loggedProcesses logged
+  pure rcs
+  where
+    load :: ([ReloadChangeset], IntMap Process) -> (Int, P.Val)
+         -> StateT Machine IO ([ReloadChangeset], IntMap Process)
+    load (cs, im) (idx, val) = case val of
+      AT 0 -> do
+        modifying' #loggedFreelist (appendSeq $ ProcessIdx idx)
+        pure (cs, im)
+      _ -> do
+        (c, p) <- liftIO $ reloadProcessSnapshot (ProcessIdx idx, val)
+        pure (c:cs, IM.insert idx p im)
+
+
+saveSnapshot :: StateT Machine IO Snapshot
+saveSnapshot = do
+  lp <- use #loggedProcesses
+  let size = case IM.toDescList lp of
+        []      -> 0
+        (s,_):_ -> s
+  pure $ Snapshot $ V.generate size (fromIntmap lp)
+  where
+    fromIntmap lp idx = case lookup idx lp of
+      Nothing      -> AT 0
+      Just process -> process ^. #noun
+
+
 deleteLocalSend :: LocalAddress -> LocalAddress -> RequestHandle
                 -> StateT Machine IO ()
 deleteLocalSend dst src reqH = do
@@ -971,11 +1032,11 @@ deleteLocalSend dst src reqH = do
              (deleteFirst reqH)
 
 doesProcessClaimLocal :: ProcessId -> LocalAddress -> StateT Machine IO Bool
-doesProcessClaimLocal aid la = do
+doesProcessClaimLocal pid la = do
   claims <- use #localClaimToProcess
   case lookup la claims of
     Nothing   -> pure $ False
-    Just aids -> pure $ member aid aids
+    Just pids -> pure $ member pid pids
 
 {- moveItem #srcMap #dstMap key -}
 moveItem :: (MonadState s m,
@@ -998,7 +1059,7 @@ getAndRemove src key = do
   use src <&> lookup key >>= \case
     Nothing -> error "Map mismatch: failed to match"
     Just value -> do
-      modifying' src (M.delete key)
+      modifying' src (IM.delete key)
       pure value
 
 -- -----------------------------------------------------------------------

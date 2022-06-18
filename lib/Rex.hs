@@ -10,7 +10,11 @@ module Rex
     , RexAmb(..)
     , Rex
     , rexFile
+    , rexFileColor
     , rexLine
+    , rexLineColor
+    , boldColoring
+    , noColoring
     )
 where
 

@@ -13,19 +13,20 @@ disk.  These processes will just disappear completely if the VM restarts.
 Persistence uses a snapshot-and-event-log model, with all logged
 processes sharing a single event log.
 
-Processes are just Plunder values.  The formal state of a machine is
-(Array Val).  Actually (Bag Val), since there is no ordering.
+Processes are just Plunder values.  A formal snapshot of all state in a
+machine is (Array Val).
 
-The runtime doesn't keep any sort of "hidden state" about processes.
-It doesn't assign process IDs, it doesn't have a permission system.
-Everything is controlled directly by the plunder-code of the process.
+The runtime doesn't keep any sort of "hidden state" about processes: the
+entirety of the system should be resumable from an (Array Val). It
+doesn't have a permission system. Everything is controlled directly by
+the plunder-code of the process.
 
 For example, we have `sleep_until_timestamp`, not
 `sleep_for_microseconds`.  If we instead had the latter, it would be a
 problem: the starting-time is not a part of the formal state.
 
 Because of that, processes provide a set of "claims" as a part of their
-state.  "I am Process-Id 5",  "I have the public identity $key", etc.
+state.  "I am Local Address 5",  "I have the public identity $key", etc.
 
 Processes interact with the world by making requests to the runtime
 system and getting responses.  The set of active requests is provided
@@ -176,7 +177,7 @@ which an optional white-list of processes we will accept message from.
 
 The response is `{from/Addr body/Val}`.
 
-### {8 wen/Wen}: wait
+#### {8 wen/Wen}: wait
 
 `wait` receives a Response after the requested timestamp.
 
@@ -184,12 +185,12 @@ The response is a natural representing the current time at execution.
 
 All timestamps are the time since January 1st, 1970 in micro-seconds.
 
-### 9: when
+#### 9: when
 
 `when` receives a Response which is the current time. Unlike `wait`,
 it doesn't delay into the future and can be used immediately.
 
-### 10: rand
+#### 10: rand
 
 `rand` receives a Response which is 64 bits of cryptographic quality
 entropy, represented as a Bar.

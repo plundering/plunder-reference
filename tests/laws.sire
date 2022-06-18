@@ -58,10 +58,10 @@
 ;;  And finally, here are the evaluation rules:
 ;;
 ;;      (NAT{0} name arity body) ->
-;;         nameV  = getNat(name)
-;;         arityV = getNat(arity)
-;;         force(body)
-;;         LAW{nameV, arityV, body}
+;;          nameV  = getNat(name)
+;;          arityV = getNat(arity)
+;;          force(body)
+;;          LAW{nameV, arityV, body}
 ;;
 ;;      (NAT{1} p l a n v) ->
 ;;          case v of
@@ -143,7 +143,7 @@
 ;;
 ;;  For example:
 ;;
-;;      (!x % y)(% z 'hi')("there")
+;;      (!x % y)(z % 'hi')("there")
 ;;
 ;;  When [] or () is used without any rune, the default rune '|' is used.
 ;;  `|` is intended to be used for function application.  The following
@@ -341,6 +341,9 @@ mkPin=4
 @ recur [until f step]
 | if [f n] z
 | step recur z n
+
+;;; TODO `until` factors out a repetative pattern, but does not aid
+;;; clarity.  Kill it.
 
 ;;;;;;;;;;;;;;;;;;;;
 ;; Val Operations ;;
@@ -2296,12 +2299,27 @@ mulHaz=[jarHash mul]
 
 !(eql /= neq)
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Macro: Global Namespace as Value ;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+= getEnvTab
+& (env nex xs mK)
+| 0,(cnsE env)
+
+#= "|?|" getEnvTab
+
+! @ env [|?|]
+  | and [eql getEnvTab | tabGet env "|?|"]
+        [eql getEnvTab | tabGet env "getEnvTab"]
+
 ;;;;;;;;;;;;;;;;;
 ;; Scratch Pad ;;
 ;;;;;;;;;;;;;;;;;
 
-#?(eql==eql==eql)
+;#?(eql==eql==eql)
+;
+;#?(eql /= neq)
+;
+;#?[: (x=3)(y=4)(z=5) y]
 
-#?(eql /= neq)
-
-#?[: (x=3)(y=4)(z=5) y]

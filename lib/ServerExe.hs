@@ -10,14 +10,18 @@ import System.Posix.Signals
 
 -- TODO: This should go in a common location instead of directly reaching in or
 -- copypasting it.
-import Plun.Print           (decodeBtc, encodeBtc)
 import Server.LmdbStore
 import Server.SimpleMachine
 import Server.Types.Logging
 import Server.Types.Machine
-import SireExe              (loadSnapshot, showPlun)
+
+import Plun.Print   (decodeBtc, encodeBtc)
+import Sire.Backend (plunLoad)
+import SireExe      (showPlun)
 
 import Plun as P
+
+--------------------------------------------------------------------------------
 
 data RunType
   = RTBoot FilePath MachineName Text
@@ -58,7 +62,7 @@ runInfo = info (runType <**> helper)
 -- write one artificial logbatch, and then read it back.
 main = do
   -- Setup plunder interpreter state.
-  writeIORef P.vShowPlun showPlun
+  writeIORef P.vShowPlun (pure . showPlun)
   modifyIORef' P.state \st -> st { P.stFast = P.jetMatch }
 
   ctrlCPressed <- newEmptyTMVarIO
@@ -75,7 +79,7 @@ main = do
           NewMachine -> do
             let haz = decodeBtc bootHash
             hom <- liftIO getHomeDirectory
-            pVal <- loadSnapshot (hom <> "/.sire") haz
+            pVal <- plunLoad (hom <> "/.sire") haz
 
             -- TODO: For now, we're manually unwrapping the implicit snapshot
             -- pin. In the short to medium term, we probably want to move to

@@ -12,8 +12,10 @@ import qualified Plun as P
 newtype MachineName = MachineName String
   deriving newtype (Show, Eq, Ord)
 
--- Opaque thread ids, these only matter locally within a Machine.
-newtype ThreadId = ThreadId { unThreadId :: Natural }
+-- Opaque process indexes. These are not visible from individual plunder
+-- processes, but are stable referents to a processes. ProcessIdx written to
+-- the event log are
+newtype ProcessIdx = ProcessIdx { unProcessIdx :: Int }
   deriving newtype (Ord, Eq, Show)
 
 -- Request Id is just a position into a returned array.
@@ -24,39 +26,39 @@ data Receipt
   -- Receipt of initializing a new process. This doesn't run, but parses out a
   -- request row to cause future events to run.
   = ReceiptInit {
-    initTid :: ThreadId,
-    initVal :: P.Val
+    initPidx :: ProcessIdx,
+    initVal  :: P.Val
     }
 
   -- Receipt of a %fork. This receipt indicates that we started a new process
   -- with the fork value specified at RequestNum. If the process is logged, we
-  -- also record its assigned tid, otherwise it doesn't matter and we don't.
+  -- also record its assigned pidx, otherwise it doesn't matter and we don't.
   | ReceiptFork {
-      forkReqTid      :: ThreadId,
-      forkReqIdx      :: RequestIdx,
-      forkAssignedTid :: Maybe ThreadId
+      forkReqPidx      :: ProcessIdx,
+      forkReqIdx       :: RequestIdx,
+      forkAssignedPidx :: Maybe ProcessIdx
       }
 
   -- Any request where we applied a raw value.
   | ReceiptVal {
-      receiptTid :: ThreadId,
-      receiptIdx :: RequestIdx,
-      receiptVal :: P.Val
+      receiptPidx :: ProcessIdx,
+      receiptIdx  :: RequestIdx,
+      receiptVal  :: P.Val
       }
 
   -- Local receive which can refer to an outstanding send request.
   | ReceiptRecv {
-      recvTid     :: ThreadId,
-      recvIdx     :: RequestIdx,
-      recvSendTid :: ThreadId,
-      recvSendIdx :: RequestIdx
+      recvPidx     :: ProcessIdx,
+      recvIdx      :: RequestIdx,
+      recvSendPidx :: ProcessIdx,
+      recvSendIdx  :: RequestIdx
       }
 
   -- Receipt that we ran a kill request, so that during replay we also pause to
   -- stop and kill everything.
   | ReceiptKill {
-      killTidNotified :: ThreadId,
-      killIdx         :: RequestIdx
+      killPidxNotified :: ProcessIdx,
+      killIdx          :: RequestIdx
       }
   deriving (Show)
 
@@ -64,7 +66,9 @@ data Receipt
 newtype BatchNum = BatchNum { unBatchNum :: Natural }
   deriving newtype (Eq, Show)
 
-data Snapshot = Snapshot (Map ThreadId P.Val)
+-- A snapshot is all the ship values implicitly identified by index, with 0
+-- values representing unused indexes.
+data Snapshot = Snapshot (Vector P.Val)
   deriving (Show)
 
 data LogBatch = LogBatch {

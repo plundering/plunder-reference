@@ -11,8 +11,8 @@
 
 -   TODO `*` should support both rows and tabs.
 
-    -   Tabs look like: `[* %{a b} %{a=3 b=4}]`.
-    -   Rows look like: `[* {a b} {a=3 b=4}]`.
+    -   Tabs look like: `[* %{a b} %{a=3 b=4} add-a-b]`.
+    -   Rows look like: `[* {a b} {a=3 b=4} add-a-b]`.
 
 -   TODO: This switches between wide and tall modes by repeatedly
     re-serializing.  This is insane!  It would be better if the printer
@@ -97,6 +97,7 @@ module Sire.Syntax
     , readSymb
     , idnTag
     , nameRex
+    , textRex
     , parens
     , xtagApp
     , bodRexWid
@@ -118,12 +119,10 @@ import Data.ByteString.Builder (byteStringHex, toLazyByteString)
 import Data.Char               (isAlphaNum, isPrint)
 import Data.Text.Encoding      (decodeUtf8')
 import Plun.Types              (lawNameText)
--- ort Unsafe.Coerce           (unsafeCoerce)
 
 import qualified Data.Char              as C
 import qualified Data.Map               as M
 import qualified Data.Text              as T
--- ort qualified Plun
 
 -- Definitions -----------------------------------------------------------------
 
@@ -174,7 +173,10 @@ okIdn txt =
     okIdnChar c   = C.isAlphaNum c
 
 nameRex :: Text -> GRex v
-nameRex t = T BARE_WORD t Nothing
+nameRex = textRex BARE_WORD
+
+textRex :: TextShape -> Text -> GRex v
+textRex s t = T s t Nothing
 
 barRex :: ByteString -> GRex v
 barRex bs =
@@ -223,12 +225,21 @@ xtagHasIdn :: XTag -> Bool
 xtagHasIdn (XTAG "" Nothing _) = False
 xtagHasIdn _                   = True
 
+simpleBody :: XBod -> Bool
+simpleBody XVAR{}         = True
+simpleBody (XBAD XVNAT{}) = True
+simpleBody (XBAD XVCOW{}) = True
+simpleBody _              = False
+
+
 -- TODO Explicitly check if recursive somehow.
 lawRexWid :: XLaw -> GRex Rex
 lawRexWid (XLAW t r b) =
+    let mode = if simpleBody b && length r < 2 then SHUT_INFIX else NEST_INFIX
+    in
     if xtagHasIdn t
     then N NEST_INFIX "?" [sigRex t r, bodRexWid b] NONE
-    else N NEST_INFIX "&" [args (nameRex<$>r), bodRexWid b] NONE
+    else N mode "&" [args (nameRex<$>r), bodRexWid b] NONE
   where
     args [x] = x
     args xs  = parens xs
@@ -270,14 +281,14 @@ rowRexWid r = N NEST_PREFIX "," (valRexWid <$> toList r) Nothing
 xvalXBod :: XVal -> XBod
 xvalXBod = \case
   XVREF r   -> XVAR r
-  XVNAT a   -> XCNS (XVNAT a)
+  XVNAT a   -> XBAD (XVNAT a)
   XVAPP f x -> XAPP (xvalXBod f) (xvalXBod x)
-  XVLAW l   -> XCNS (XVLAW l)
-  XVBAR b   -> XCNS (XVBAR b)
-  XVROW b   -> XCNS (XVROW b)
-  XVCOW n   -> XCNS (XVCOW n)
-  XVTAB t   -> XCNS (XVTAB t)
-  XVCAB t   -> XCNS (XVCAB t)
+  XVLAW l   -> XBAD (XVLAW l)
+  XVBAR b   -> XBAD (XVBAR b)
+  XVROW b   -> XBAD (XVROW b)
+  XVCOW n   -> XBAD (XVCOW n)
+  XVTAB t   -> XBAD (XVTAB t)
+  XVCAB t   -> XBAD (XVCAB t)
 
 unCell :: [XVal] -> XVal -> [XVal]
 unCell acc = \case
@@ -286,6 +297,15 @@ unCell acc = \case
 
 parens :: [GRex v] -> GRex v
 parens rexz = N NEST_PREFIX "|" rexz Nothing
+
+wideApp :: [GRex v] -> GRex v
+wideApp rexz =
+    if all simple rexz
+    then N SHUT_INFIX  "-" rexz Nothing
+    else N NEST_PREFIX "|" rexz Nothing
+  where
+    simple (T BARE_WORD _ Nothing) = True
+    simple _                       = False
 
 valRex :: XVal -> GRex Rex
 valRex = bodRex . xvalXBod
@@ -315,6 +335,7 @@ TODO
 -}
 
 bodRex :: XBod -> GRex Rex
+bodRex x@XLET{} = bodRexOpen x
 bodRex x =
   if length wideOut <= 55
   then wideRex
@@ -322,6 +343,9 @@ bodRex x =
  where
   wideRex = bodRexWid x
   wideOut = rexLine (joinRex wideRex)
+
+bodRexCont :: XBod -> GRex Rex
+bodRexCont = forceOpen . bodRex
 
 pattern NONE :: Maybe a
 pattern NONE = Nothing
@@ -381,22 +405,22 @@ expRexWid = \case
 
 bodRexOpen :: XBod -> GRex Rex
 bodRexOpen = \case
-  XCNS (XVREF r)    -> nameRex r
-  XCNS (XVNAT a)    -> natRex a
-  XCNS (XVAPP f x)  -> colSeq (valRex <$> unCell [x] f)
-  XBAD v            -> N OPEN "!" [valRex v] Nothing
+  XBAD (XVREF r)    -> nameRex r
+  XBAD (XVNAT a)    -> natRex a
+  XBAD (XVAPP f x)  -> colSeq (valRex <$> unCell [x] f)
+  XCNS v            -> N OPEN "!" [valRex v] Nothing
   XAPP f x          -> niceApp (bodRex <$> unXApp [x] f)
-  XLET n v k        -> N OPEN "-" [nameRex n, bodRex v] (Just $ bodRex k)
-  XCNS (XVLAW l)    -> lawRex l
-  XCNS (XVROW r)    -> comSeq (valRex <$> toList r)
-  XCNS (XVCAB k)    -> N OPEN "%" [comSeq $ fmap keyRex $ toList k] NONE
-  XCNS (XVTAB t)    -> N OPEN "%" [comSeq $ fmap f $ mapToList t] NONE
+  XLET n v k        -> N OPEN "@" [nameRex n, bodRex v] (Just $ bodRexCont k)
+  XBAD (XVLAW l)    -> lawRex l
+  XBAD (XVROW r)    -> comSeq (valRex <$> toList r)
+  XBAD (XVCAB k)    -> N OPEN "%" [comSeq $ fmap keyRex $ toList k] NONE
+  XBAD (XVTAB t)    -> N OPEN "%" [comSeq $ fmap f $ mapToList t] NONE
                          where
                            f :: (Nat, XVal) -> GRex Rex
                            f (k, v) = N OPEN "=" [keyRex k, valRex v] NONE
   x@(XVAR{})        -> bodRexWid x
-  x@(XCNS(XVBAR{})) -> bodRexWid x
-  x@(XCNS(XVCOW{})) -> bodRexWid x
+  x@(XBAD(XVBAR{})) -> bodRexWid x
+  x@(XBAD(XVCOW{})) -> bodRexWid x
 
 colSeq :: [GRex v] -> GRex v
 colSeq []     = error "impossible"
@@ -463,9 +487,11 @@ sigRex :: XTag -> [Text] -> GRex v
 sigRex n rs = N NEST_PREFIX "|" (xtagRex n : fmap nameRex rs) Nothing
 
 forceOpen :: GRex v -> GRex v
-forceOpen (T s t k)      = N OPEN "|" [T s t (forceOpen <$> k)] Nothing
-forceOpen (N _ run xs k) = N OPEN run xs k
-forceOpen (C c k)        = C c (forceOpen <$> k)
+-- ceOpen (T s t k)        = T s t (forceOpen <$> k)
+forceOpen x@(N OPEN _ _ _) = x
+forceOpen (N _ "|" xs k)   = N OPEN "|" xs k
+forceOpen other            = N OPEN "|" [other] NONE
+-- ceOpen (C c k)          = C c (forceOpen <$> k)
 
 joinRex :: GRex (GRex v) -> GRex v
 joinRex = \case
@@ -513,18 +539,18 @@ unEApp acc = \case
 bodRexWid :: XBod -> GRex Rex
 bodRexWid = \case
     XVAR v           -> nameRex v
-    XCNS (XVREF r)   -> nameRex r
-    XCNS (XVNAT a)   -> natRex a
-    XCNS (XVAPP f x) -> N SHUT_INFIX ":" (valRexWid <$> unCell [x] f) NONE
-    XCNS (XVBAR b)   -> barRex b
-    XCNS (XVROW b)   -> valRexWid $ XVROW b
-    XCNS (XVCOW n)   -> nameRex ("R" <> tshow n)
-    XCNS (XVTAB t)   -> valRexWid (XVTAB t)
-    XCNS (XVCAB k)   -> valRexWid (XVCAB k)
-    XCNS (XVLAW l)   -> lawRexWid l
-    XBAD v           -> N SHUT_PREFIX "!" [valRexWid v] NONE
-    XAPP f x         -> parens (bodRexWid <$> unXApp [x] f)
-    XLET n v k       -> N NEST_INFIX "-" [nameRex n, bodRexWid v]
+    XBAD (XVREF r)   -> nameRex r
+    XBAD (XVNAT a)   -> natRex a
+    XBAD (XVAPP f x) -> N SHUT_INFIX ":" (valRexWid <$> unCell [x] f) NONE
+    XBAD (XVBAR b)   -> barRex b
+    XBAD (XVROW b)   -> valRexWid $ XVROW b
+    XBAD (XVCOW n)   -> nameRex ("R" <> tshow n)
+    XBAD (XVTAB t)   -> valRexWid (XVTAB t)
+    XBAD (XVCAB k)   -> valRexWid (XVCAB k)
+    XBAD (XVLAW l)   -> lawRexWid l
+    XCNS v           -> N SHUT_PREFIX "!" [valRexWid v] NONE
+    XAPP f x         -> wideApp (bodRexWid <$> unXApp [x] f)
+    XLET n v k       -> N NEST_INFIX "@" [nameRex n, bodRexWid v]
                                          (Just $ bodRexWid k)
 
 xtagApp :: XTag -> [Text] -> GRex v
@@ -544,7 +570,7 @@ xtagRex = \case
 
 -- Parsing ---------------------------------------------------------------------
 
-rexCmd :: ∀m v. (Eq v, Show v) => MacroEnv m v -> Rex -> Either Text (XCmd v)
+rexCmd :: ∀m. MacroEnv m Pln -> Rex -> Either Text (XCmd Pln)
 rexCmd env rex =
     preProcess rex >>= load
  where
@@ -552,12 +578,12 @@ rexCmd env rex =
   preProcess = fmap rewriteLeafJuxtaposition
              . applyInfixPrec
 
-  load :: GRex v -> Either Text (XCmd v)
+  load :: GRex Pln -> Either Text (XCmd Pln)
   load = resultEitherText dropEmbed rex
        . runReading env readCmd
        . stripComments
 
-  dropEmbed :: GRex v -> Rex
+  dropEmbed :: Show v => GRex v -> Rex
   dropEmbed = \case
       T s t k     -> T s t                    (dropEmbed <$> k)
       C c k       -> T THIN_CORD (tshow c)    (dropEmbed <$> k)
@@ -657,7 +683,7 @@ dent pre = unlines . fmap dentLine . lines
 
 type Red m v = ReadT v (ReaderT (MacroEnv m v) IO)
 
-readCmd :: ∀m v. (Eq v, Show v) => Red m v (XCmd v)
+readCmd :: ∀m. Red m Pln (XCmd Pln)
 readCmd = asum
   [ do rune "!"
        checks <- slip1N "!" readExpr readExpr
@@ -731,15 +757,15 @@ readCow = matchLeaf "R[0-9]+" \case
     _ -> Nothing
 
 readBod :: Red m v XBod
-readBod = asum [ XCNS . XVNAT <$> readNat
-               , readCow <&> \case 0 -> XCNS (XVROW mempty)
-                                   n -> XCNS (XVCOW n)
+readBod = asum [ XCNS . XVNAT <$> readNat -- TODO: Depends on scope.
+               , readCow <&> \case 0 -> XBAD (XVROW mempty)
+                                   n -> XBAD (XVCOW n)
                , XVAR <$> readSymb
                , rune "|" >> (uncurry xapp <$> form1Nc readBod readBod)
                , rune "-" >> (uncurry xapp <$> form1Nc readBod readBod)
-               , rune ":" >> form1c (XCNS <$> readVal)
+               , rune ":" >> form1c (XBAD <$> readVal)
                              -- TODO Accept multiple params
-               , rune "!" >> form1c (XBAD <$> readVal)
+               , rune "!" >> form1c (XCNS <$> readVal)
                , rune "@" >> do (n, v, k) <- form3c readSymb readBod readBod
                                 pure (XLET n v k)
                ]
@@ -832,7 +858,6 @@ data MacroEnv m v = MacroEnv
     { meGenSymState :: IORef Nat
     , meGlobalScope :: v
     , meMacros      :: Map Text v
-    , meBackend     :: Backend m v
     }
 
 readNamz :: Red m v [Text]
@@ -851,7 +876,7 @@ type MacroExpander v
     -> Maybe (GRex v)
     -> IO (Either Text (Nat, (GRex v)))
 
-runMacro :: (Eq v, Show v) => MacroExpander v -> Red m v (XExp v)
+runMacro :: MacroExpander Pln -> Red m Pln (XExp Pln)
 runMacro macro = do
     (xs, mK) <- readNode
     env@MacroEnv{..} <- lift ask
@@ -865,12 +890,11 @@ runMacro macro = do
                    $ runReadT readExpr res
                    ) >>= readResult
 
-readExpr :: (Eq v, Show v) => Red m v (XExp v)
+readExpr :: Red m Pln (XExp Pln)
 readExpr = do
-    MacroEnv{meMacros, meBackend} <- lift ask
+    MacroEnv{meMacros} <- lift ask
     let macros = mapToList meMacros <&> \(r,h) -> do rune r
-                                                     let be = meBackend
-                                                     runMacro(plunderMacro be h)
+                                                     runMacro (plunderMacro h)
     asum (fixed <> macros)
   where
     fixed =
@@ -927,7 +951,7 @@ readExpr = do
     nameLam (t,rs) x = XELAM (XFUN t            rs     x)
     anonLin (r,rs) x = XELIN (XFUN (idnXTag "") (r:rs) x)
 
-    readPats :: (Eq v, Show v) => Red m v (Map (Maybe Nat) ([Text], XExp v))
+    readPats :: Red m Pln (Map (Maybe Nat) ([Text], XExp Pln))
     readPats = do
         rune "="
         let readPatr = fmap (,[]) readNatCab
@@ -935,10 +959,10 @@ readExpr = do
         ps <- slip2 "=" readPatr readExpr
         pure $ mapFromList (ps <&> \((n,rs),x) -> (n,(rs,x)))
 
-    readNatCab :: Red m v (Maybe Nat)
+    readNatCab :: Red m Pln (Maybe Nat)
     readNatCab = fmap Just readNat <|> (readSymbEq "_" $> Nothing)
 
-    readTSig :: Red m v (Map Nat Text)
+    readTSig :: Red m Pln (Map Nat Text)
     readTSig =
         fmap mapFromList
         $ asum
@@ -1032,28 +1056,20 @@ readKey = asum
 
 -- Macros ----------------------------------------------------------------------
 
-plunderMacro :: ∀m v. (Eq v, Show v) => Backend m v -> v -> MacroExpander v
-plunderMacro be macroLaw macEnv nex xs mK = do
-    let unsafePut :: Val v -> v
-        unsafePut = unsafePerformIO . bIO be . bPutVal be
+plunderMacro :: Pln -> MacroExpander Pln
+plunderMacro macroLaw macEnv nex xs mK = do
+    let vs  = ROW $ fromList (rexVal <$> xs)
+    let kv  = maybe (NAT 0) rexVal mK
+    let res = valPlun (REF macroLaw `APP` REF macEnv
+                                    `APP` NAT nex
+                                    `APP` vs
+                                    `APP` kv)
 
-    let vs = ROW $ fromList (rexVal <$> xs)
-    let kv = maybe (NAT 0) rexVal mK
-    res <- bIO be $ bPutVal be (REF macroLaw `APP` REF macEnv
-                                             `APP` NAT nex
-                                             `APP` vs
-                                             `APP` kv)
-
-    bIO be (bGetVal be res) <&> \case
+    pure $ case plunVal res of
         NAT (natUtf8 -> Right msg) ->
             Left msg
         ROW (toList -> [NAT used, body]) -> do
-            rez <- loadRex unsafePut body
---          rez <- loadRex (\x -> trace (show x) (unsafePut x)) body
---          traceM $ unpack
---                 $ rexFile
---                 $ fmap (\v -> AN (L $ NAME $ showRaw v) [] Nothing)
---                 $ rez
+            rez <- loadRex valPlun body
             pure (used, rez)
         _  ->
             Left "Invalid Macro Expansion"
@@ -1061,7 +1077,7 @@ plunderMacro be macroLaw macEnv nex xs mK = do
 --  showRaw :: v -> Text
 --  showRaw x = "Δ" <> tshow (unsafeCoerce x :: Plun.Val)
 
-loadRex :: ∀v. (Show v, Eq v) => (Val v -> v) -> Val v -> Either Text (GRex v)
+loadRex :: (Val Pln -> Pln) -> Val Pln -> Either Text (GRex Pln)
 loadRex putVal =
     loadRow >=> loadRexRow
   where
@@ -1107,12 +1123,7 @@ loadRex putVal =
     loadCont (NAT 0) = pure Nothing
     loadCont mkv     = Just <$> recur mkv
 
--- tracePutted :: v -> v
--- tracePutted x = trace whoa x
---   where
---     whoa = show $ (unsafeCoerce x :: Plun.Val)
-
-rexVal :: ∀v. GRex v -> Val v
+rexVal :: GRex Pln -> Val Pln
 rexVal = \case
     -- TODO Change this to match new representation:
     -- {0 m p k}

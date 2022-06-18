@@ -18,6 +18,11 @@ class ToNoun a where
 class FromNoun a where
   fromNoun :: Val -> Maybe a
 
+instance ToNoun Val where
+  toNoun = id
+instance FromNoun Val where
+  fromNoun = Just . id
+
 instance ToNoun Natural where
   toNoun n = AT $ n
 instance FromNoun Natural where
@@ -71,10 +76,10 @@ instance ToNoun MachineName where
 instance FromNoun MachineName where
   fromNoun n = MachineName <$> fromNoun n
 
-instance ToNoun ThreadId where
-  toNoun (ThreadId i) = toNoun i
-instance FromNoun ThreadId where
-  fromNoun n = ThreadId <$> fromNoun n
+instance ToNoun ProcessIdx where
+  toNoun (ProcessIdx i) = AT $ fromIntegral i
+instance FromNoun ProcessIdx where
+  fromNoun n = (ProcessIdx . fromIntegral) <$> fromNoun @Nat n
 
 instance ToNoun RequestIdx where
   toNoun (RequestIdx i) = AT $ fromIntegral i
@@ -82,11 +87,9 @@ instance FromNoun RequestIdx where
   fromNoun n = (RequestIdx . fromIntegral) <$> fromNoun @Nat n
 
 instance ToNoun Snapshot where
-  toNoun (Snapshot m) = VAL 1 $ DAT $ TAB $ M.mapKeys unThreadId m
+  toNoun (Snapshot v) = toNoun v
 instance FromNoun Snapshot where
-  fromNoun n = do
-    tbl <- getRawTable n
-    pure $ Snapshot $ M.mapKeys ThreadId tbl
+  fromNoun v = Snapshot <$> fromNoun v
 
 instance ToNoun BatchNum where
   toNoun (BatchNum n) = toNoun n
@@ -94,16 +97,16 @@ instance FromNoun BatchNum where
   fromNoun n = BatchNum <$> fromNoun n
 
 instance ToNoun Receipt where
-  toNoun ReceiptInit{..} = mkRow [AT 0, toNoun initTid, initVal]
+  toNoun ReceiptInit{..} = mkRow [AT 0, toNoun initPidx, initVal]
   toNoun ReceiptFork{..} =
-    mkRow [AT 1, toNoun forkReqTid, toNoun forkReqIdx, toNoun forkAssignedTid]
+    mkRow [AT 1, toNoun forkReqPidx, toNoun forkReqIdx, toNoun forkAssignedPidx]
   toNoun ReceiptVal{..} =
-    mkRow [AT 2, toNoun receiptTid, toNoun receiptIdx, receiptVal]
+    mkRow [AT 2, toNoun receiptPidx, toNoun receiptIdx, receiptVal]
   toNoun ReceiptRecv{..} =
-    mkRow [AT 3, toNoun recvTid, toNoun recvIdx, toNoun recvSendTid,
+    mkRow [AT 3, toNoun recvPidx, toNoun recvIdx, toNoun recvSendPidx,
            toNoun recvSendIdx]
   toNoun ReceiptKill{..} =
-    mkRow [AT 4, toNoun killTidNotified, toNoun killIdx]
+    mkRow [AT 4, toNoun killPidxNotified, toNoun killIdx]
 
 parseAt :: FromNoun a => Vector Val -> Int -> Maybe a
 parseAt v i = v V.!? i >>= fromNoun

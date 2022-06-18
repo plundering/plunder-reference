@@ -177,9 +177,21 @@ resugarRul idn (RUL nam arg bod) =
     argSupply = filter (not . isUsed) varNames
     isUsed nm = isFree nm || nm==idn
 
+isCode :: Nat -> Val a -> Bool
+isCode nex (NAT n)                 = n<nex
+isCode _   (NAT 0 `APP` _ `APP` _) = True
+isCode _   (NAT 1 `APP` _ `APP` _) = True
+isCode _   (NAT 2 `APP` _)         = True
+isCode _   _                       = False
+
 goBod :: (Text -> Bool) -> [Text] -> Nat -> Bod Text -> Either Text XBod
 goBod isGlo names nex = \case
-    BCNS v   -> pure $ XCNS (resugarVal v)
+    BCNS v   -> if isCode nex v
+                then pure $ XBAD (resugarVal v)
+                else pure $ XCNS (resugarVal v)
+                -- Anything code-shaped will automatically be
+                -- constant-tagged (since it is required by correctness),
+                -- this makes the explicit "!" unneccesary.
     BBAD v   -> pure $ XBAD (resugarVal v)
     BAPP f x -> XAPP <$> go nex f <*> go nex x
     BLET v k -> XLET (names!!(fromIntegral nex)) <$> go(nex+1) v <*> go(nex+1) k

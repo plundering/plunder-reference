@@ -9,30 +9,65 @@ Macros
     Command macros should also be able to directly modify the environment,
     the macros table, and maybe the requests table.
 
--   Macros have access to the macro-table.
+-   Macro definition should just use the `=` rune.  Add some way to
+    refer to non-identifier symbols.  Like, to enable us to have a global
+    variable named 0.
 
-    By the "macro-table", I mean the `(Map Text Val)` that  maps runs
-    to macro-functions.
+    This is useful because it means that we can do things like
 
-    Having access to the macro-table allows macros to explicitly
-    macro-expand certain sub-expressions, so that it can do analysis
-    on them.
-
--   Macros have access to lexical scope
-
-    This requires the complecting of name resolution and parsing, but
-    should be possible.
+        ','=rowMacro
+        ! eql $$',' $$','
+        ! eql [$$',' 0 0 emptyRow 0] [$$',' 0 0 emptyRow 0]
 
 -   Consider using `,,,` or one-item-per-line row literals.
 
-    ',' is hard to see, and the syntax rules are unintuitive.
-    For example, the following two expressions are interepreted in
-    totally different ways.  This is confusing.
+    ',' is hard to see, and the syntax rules are unintuitive.  For
+    example, the following two expressions are interpreted in totally
+    different ways.  This is confusing.
 
         , f x  ==>  {f x}
 
         , f x
         , f x  ==>  {(f x) (f x)}
+
+
+Named Let Bindings
+==================
+
+Consider NOT re-using names in nested laws (in value syntax).
+    For example:
+
+        := [natWords a]
+        | switch a
+           |  ? [loop a b]
+              | switch b
+                 | cordConcat
+                 | R2 [loop a div-b-10]
+                 | a mod-b-10
+        ...
+
+    Technically the re-use of `a` in `loop` is valid, because the `Loot`
+    language does not have lexical scope for law literals.  But it's still
+    confusing.
+
+-   Consider adding an optional tag to let bindings, (1 TAG e b) which
+    could make disassembler output more readable.
+
+    Interestingly, this makes all code-forms have different shapes.
+    We could technically use `1` for all code-forms.
+
+        (1 x)     -> x
+        (1 f x)   -> f x
+        (1 v x b) -> let v=x in b (where v is just a tag-hint)
+
+    Swapping the 0 and 1 primitives, that becomes:
+
+        0         -> SELF_REFERENCE
+        (0 x)     -> x
+        (0 f x)   -> f x
+        (0 v x b) -> let v=x in b (where v is just a tag-hint)
+
+    Probably a bad idea.
 
 Data Jets
 =========
@@ -47,9 +82,12 @@ Data Jets
     %{x='a' y='b' z='c'}
         ==>
     ([0 0 4 {%x %y %z}] %a %b %c)`
+        ==>
+    (0 0 4 (0 0 4 0 %x %y %z) %a %b %c)`
     ```
 
--   Bars should use tag `1` and be a single natural with the high-bit set:
+-   Bars should use tag `1` and be a single natural number with the
+    high-bit set:
 
     ```
     BX""     = (0 1 1 1)
@@ -73,50 +111,38 @@ alpha2
 
 - TODO Remove `Backend` abstraction and work directly with `Plun.Val`.
 
-    This kills all hope of resurecting the C runtime system in the
-    short-term, but should massively simplify the codebase.
+    TODO This is done now, but still need to take advantage of concretion
+         to remove `ExceptT Text IO` where possible
 
-    This is a reference implementation and it really needs to be simple
-    and clean.
+    Sire-in-Sire should provide it's own parsing, printing, etc.
 
-    Once Rex and Sire are nailed down, it should be pretty easy to just
-    implement those directly in C.  Also, it's just painful to maintain
-    C code when the designs are constantly changing.
-
-    -   Rex can be implemented fairly trivially with a recursive-decent
-        parser.
-
-    -   Parsing rex into Sire with macro expansion and name-resolution
-        is easy.  Should be doable in a single large, recursive function.
-
-    -   Compiling Sire into Plunder and loading the values will be easy
-        with direct access to runtime internals.
-
-    -   A boostreapping implementation doesn't need good error messages.
-
-    -   A boostreapping implementation doesn't need a printer.
-
-    -   A boostreapping implementation doesn't need any scaffolding
-        for error-handling.  It can just complain and kill the process.
-
-    -   Sire-in-Sire can provide those things (parsing with errors, printing, etc)
+    When we go to rebuild the C runtime system, we can just build a whole
+    Sire system directly into that.  Simple rex parser, simple sire
+    reader, etc.  This also removes the need to build out a proper CFFI,
+    move things between the GHC/C heaps, etc.
 
 alpha3
 ======
 
-- TODO Get mandelbrot code running correctly.
-- TODO Update `Bod` printer (!no !more !of !this)
-- Separate Val/Bod from Sire and name it.
+- TODO Get Mandelbrot code running correctly.
+- Separate Val/Bod from Sire and name it "Loot".
 
 
 alpha3
 ======
 
-- Inline Lambdas: (x!x 3)          := 3
-- Static Lambdas: (x!![add x x] 3) := 6
+- Inline Lambdas: (x:x 3)         := 3
+- Static Lambdas: (x![add x x] 3) := 6
 - Lazy Loading
-- Real pretty-printing framework
-    (instead of nonsense try-every-way brute force system)
+
+
+Pretty Printing
+===============
+
+TODO: Build out a real pretty-printing framework
+
+    Replace this nonsense try-every-way brute force system.
+
 
 Minor Changes
 =============

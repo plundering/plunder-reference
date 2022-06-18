@@ -3,8 +3,8 @@ module Server.Process where
 -- All code about applying Responses to a noun, and then parsing the produced
 -- keys and Requests from the return value.
 --
--- We split this code out because it is the same between the SimpleTroupe and
--- any more complicated production Troupe we write.
+-- We split this code out because it is the same between the SimpleMachine and
+-- any more complicated production Machine we write.
 
 import PlunderPrelude
 
@@ -54,14 +54,14 @@ data Claim
 data LogType = Logged | Unlogged
   deriving (Eq, Ord, Show)
 
--- ThreadIds are written to event logs. But we have to be able to address
+-- ProcessIdxs are written to event logs. But we have to be able to address
 -- processes which aren't written to event logs, too.
-data ProcessId = ProcessId LogType ThreadId
+data ProcessId = ProcessId LogType ProcessIdx
   deriving (Eq, Ord, Show)
 
-processIdToThreadId :: ProcessId -> Either ThreadId ThreadId
-processIdToThreadId (ProcessId Logged l)   = Left l
-processIdToThreadId (ProcessId Unlogged r) = Right r
+processIdToProcessIdx :: ProcessId -> Either ProcessIdx ProcessIdx
+processIdToProcessIdx (ProcessId Logged l)   = Left l
+processIdToProcessIdx (ProcessId Unlogged r) = Right r
 
 -- -----------------------------------------------------------------------
 
@@ -129,7 +129,7 @@ data Response
       }
   | RunKill {
       rlReason           :: Val,
-      rlLoggedTidsKilled :: [ThreadId],
+      rlLoggedTidsKilled :: [ProcessIdx],
       rlKilledChangesets :: [KilledChangeset]
       }
   deriving (Show)
@@ -155,7 +155,7 @@ data Process = PROCESS {
 
 -- Describes the effect running the response had. Different execeffects can
 -- result in different Receipts, and may require different behaviours when
--- updating Troupe state.
+-- updating Machine state.
 data ExecEffect
   -- We didn't apply a value (ie, in the case of a new forked process).  The
   -- attached changeset is just adds.
@@ -183,7 +183,7 @@ data ExecEffect
   -- matching processes.
   | EEKilled { killRequestIdx       :: RequestIdx,
                killReason           :: Val,
-               killLoggedTidsKilled :: [ThreadId],
+               killLoggedTidsKilled :: [ProcessIdx],
                killKilledChangesets :: [KilledChangeset]
              }
   -- Running this request crashed, either because of an explicit crash or
@@ -353,12 +353,12 @@ readProcess n = do
   noun <- r V.!? 1
   pure (lastResp, noun)
 
-reloadProcessSnapshot :: (ThreadId, Val)
-                    -> IO (ReloadChangeset, (ThreadId, Process))
-reloadProcessSnapshot (tid, val) = do
-  let aid = ProcessId Logged tid
-  (r, s) <- runStateT parseReloadChangeset (newProcess aid val)
-  pure (r, (tid, s))
+reloadProcessSnapshot :: (ProcessIdx, Val)
+                      -> IO (ReloadChangeset, Process)
+reloadProcessSnapshot (pidx, val) = do
+  let pid = ProcessId Logged pidx
+  (r, s) <- runStateT parseReloadChangeset (newProcess pid val)
+  pure (r, s)
 
 killProcess :: Process -> IO KilledChangeset
 killProcess process = evalStateT exec process
@@ -372,11 +372,11 @@ killProcess process = evalStateT exec process
       pure KilledChangeset{..}
 
 
-buildInitialProcess :: ThreadId -> Val -> IO (ExecChangeset, Process)
-buildInitialProcess tid val = do
-  let aid = ProcessId Logged tid
-  runStateT (parseExecChangeset (EEInit aid val))
-            (newProcess aid val)
+buildInitialProcess :: ProcessIdx -> Val -> IO (ExecChangeset, Process)
+buildInitialProcess pidx val = do
+  let pid = ProcessId Logged pidx
+  runStateT (parseExecChangeset (EEInit pid val))
+            (newProcess pid val)
 
 execResponse :: RequestHandle -> Response
              -> StateT Process IO (Maybe ExecChangeset)
@@ -401,8 +401,8 @@ execResponse reqH response = do
             FOReplayUnlogged -> pure $ EEDefault reqIdx respVal
           (RecvLocal sendAt val src dst) ->
             pure $ EELocalRecv reqIdx respVal sendAt src dst
-          (RunKill reason tids changes) ->
-            pure $ EEKilled reqIdx reason tids changes
+          (RunKill reason pids changes) ->
+            pure $ EEKilled reqIdx reason pids changes
           _ -> pure $ EEDefault reqIdx respVal
 
         Just <$> parseExecChangeset execEffect

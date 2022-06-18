@@ -1,7 +1,11 @@
 {-# OPTIONS_GHC -Wall   #-}
 {-# OPTIONS_GHC -Werror #-}
 
-module SireExe (main, loadSnapshot, showPlun) where
+module SireExe
+    ( main
+    , showPlun
+    )
+where
 
 import Plun.Print
 import PlunderPrelude
@@ -13,12 +17,10 @@ import System.Directory
 
 import Control.Monad.Except    (ExceptT, runExceptT)
 import Control.Monad.State     (get, put)
-import Control.Monad.State     (State, evalState, evalStateT, runState)
+import Control.Monad.State     (State, evalState, evalStateT)
 import Data.ByteString.Builder (byteStringHex, toLazyByteString)
-import Jar                     (capBSExn)
 import Plun                    (pattern AT, (%%))
 import Sire.Sugar              (desugarCmd, resugarRul, resugarVal)
-import Unsafe.Coerce           (unsafeCoerce)
 
 import qualified Data.Map  as M
 import qualified Data.Text as T
@@ -63,7 +65,7 @@ main = do
 
     vEnv <- newIORef mempty
     vMac <- newIORef mempty
-    writeIORef P.vShowPlun showPlun
+    writeIORef P.vShowPlun (pure . showPlun)
     modifyIORef' P.state \st -> st { P.stFast = P.jetMatch }
 
     for_ filz $ \p -> do
@@ -78,181 +80,79 @@ runBlockPlun
     -> Block
     -> IO ()
 runBlockPlun okErr actor vEnv vMac block =
-  runExceptT (runBlock plunBackend actor vEnv vMac block) >>= \case
+  runExceptT (runBlock actor vEnv vMac block) >>= \case
         Right () -> pure ()
         Left err -> do
             liftIO $ putChunk
                    $ bold
                    $ fore red
                    $ chunk
-                   $ dent "###" err
+                   $ dent ";;;" err
             unless okErr $ do
                 error "EXITING"
 
-valPlun :: Val P.Val -> P.Val
-valPlun (NAT a)     = AT a
-valPlun (REF v)     = v
-valPlun (APP f x)   = valPlun f %% valPlun x
-valPlun (BAR b)     = P.mkBar b
-valPlun (ROW r)     = P.mkRow (toList $ valPlun <$> r)
-valPlun (LAW n a b) = P.mkLaw n a (valPlun $ bodVal b)
-valPlun (COW n)     = P.nodVal $ P.DAT $ P.COW n
-valPlun (TAB t)     = P.nodVal $ P.DAT $ P.TAB $ (valPlun <$> t)
-valPlun (CAB k)     = P.nodVal $ P.DAT $ P.CAB k
-
--- TODO Better to return (Val P.Pin), but dont want to add another
--- type varibale to the Backend abstration.  Once we kill the abstraction,
--- then we should simplify this.
-plunVal :: P.Val -> Val P.Val
-plunVal = goVal
-  where
-    goVal (P.VAL _ n) = goNod n
-
-    goNod :: P.Nod -> Val P.Val
-    goNod = \case
-        vl@P.PIN{}       -> REF (P.nodVal vl)
-        P.NAT a          -> NAT a
-        P.APP x y        -> APP (goNod x) (goVal y)
-        P.LAW P.L{..}    -> LAW lawName lawArgs
-                                $ valBod lawArgs
-                                $ goVal lawBody
-        P.DAT (P.BAR b)  -> BAR b
-        P.DAT (P.COW n)  -> COW n
-        P.DAT (P.CAB ks) -> CAB ks
-        P.DAT (P.ROW xs) -> ROW (goVal <$> xs)
-        P.DAT (P.TAB t)  -> TAB (goVal <$> t)
-
 -- TODO Implement shallow loads.
-plunBackend :: Backend (ExceptT Text IO) P.Val
-plunBackend = BACKEND{..}
-  where
-    bShallow  = pure . makeShallow . plunClosure
-    bClosure  = pure . plunClosure
-    bGetAlias = pure . plunAlias
-    bArity    = pure . P.trueArity
-    bPutVal   = pure . valPlun
-    bGetVal   = pure . plunVal
-    bMkPin    = pure . P.mkPin
-    bDump     = \pax val -> liftIO (saveSnapshot pax val)
-    bLoad     = \pax has -> liftIO (loadSnapshot pax has)
-    bIO       = runExceptT >=> either (error . unpack) pure -- TODO So much hack
-    bIOErr    = runExceptT
-
-plunAlias :: P.Val -> Maybe (Val P.Val)
-plunAlias (P.VAL _ P.PIN{}) = Nothing
-plunAlias (P.VAL _ topNod)  = Just (nod topNod)
-  where
-    go (P.VAL _ n) = nod n
-    nod = \case
-        n@P.PIN{}       -> REF (P.nodVal n)
-        P.NAT a         -> NAT a
-        P.DAT (P.BAR b) -> BAR b
-        P.DAT (P.ROW r) -> ROW (go <$> r)
-        P.DAT (P.TAB t) -> TAB (go <$> t)
-        P.DAT (P.COW n) -> COW n
-        P.DAT (P.CAB n) -> CAB n
-        P.APP f x       -> APP (nod f) (go x)
-        P.LAW P.L{..}   -> LAW lawName lawArgs (valBod lawArgs $ go lawBody)
-
-type GetPlun v = State (Int, Map ByteString Int, [(v, Val Int)])
-
-plunClosure :: P.Val -> Closure P.Val
-plunClosure inVal =
-    let (top, (_,_,stk)) = runState (go inVal) (0, mempty, [])
-    in CLOSURE (fmap (over _2 Right) $ fromList $ reverse stk) top
-  where
-    go :: P.Val -> GetPlun P.Val (Val Int)
-    go (P.VAL _ nod) =
-        case nod of
-            P.NAT a         -> pure (NAT a)
-            P.DAT (P.BAR b) -> pure (BAR b)
-            P.DAT (P.ROW r) -> ROW <$> traverse go r
-            P.DAT (P.TAB t) -> TAB <$> traverse go t
-            P.DAT (P.COW n) -> pure (COW n)
-            P.DAT (P.CAB n) -> pure (CAB n)
-            P.APP f x       -> goCel (P.nodVal f) x
-            P.PIN b         -> REF <$> goPin b
-            P.LAW (P.L{..}) -> do
-                b <- go lawBody
-                pure $ LAW lawName lawArgs (valBod lawArgs b)
-
-    goCel x y = APP <$> go x <*> go y
-
-    goPin :: P.Pin -> GetPlun P.Val Int
-    goPin P.P{..} = do
-        (_, tabl, _) <- get
-        case lookup pinHash tabl of
-            Just i -> pure i
-            Nothing -> do
-                kor <- (pinItem,) <$> go pinItem
-                (nex, tab, stk) <- get
-                let tab' = insertMap pinHash nex tab
-                put (nex+1, tab', kor:stk)
-                pure nex
 
 runBlock
-    :: ∀ m a
-     . (Eq a, Show a, MonadError Text m, MonadIO m)
-    => Backend m a
-    -> (a -> IO (a, a))
-    -> IORef (Map Text a)
-    -> IORef (Map Text a)
+    :: (Pln -> IO (Pln, Pln))
+    -> IORef (Map Text Pln)
+    -> IORef (Map Text Pln)
     -> Block
-    -> m ()
-runBlock be actor vEnv vMacros (BLK _ _ eRes) = do
+    -> ExceptT Text IO ()
+runBlock actor vEnv vMacros (BLK _ _ eRes) = do
     rexed  <- liftEither eRes
-    vgs <- newIORef (0::Nat)
-    env  <- readIORef vEnv
-    eVl <- bPutVal be (envVal env)
-    mac <- readIORef vMacros
-    parsed <- liftEither (rexCmd (MacroEnv vgs eVl mac be) rexed)
+    vgs    <- newIORef (0::Nat)
+    env    <- readIORef vEnv
+    eVl    <- pure (valPlun $ envVal env)
+    mac    <- readIORef vMacros
+    parsed <- liftEither (rexCmd (MacroEnv vgs eVl mac) rexed)
     let sugarFree = desugarCmd parsed
-    env' <- runCmd be actor env vMacros sugarFree
+    env' <- runCmd actor env vMacros sugarFree
     writeIORef vEnv env'
 
 showPin :: Text -> Val Text -> Text
 showPin self =
-    rexFile . joinRex . \case
+    rexFileColor boldColoring . joinRex . \case
         LAW ln lt lb ->
             let XLAW t as b = resugarRul self (RUL ln lt lb)
-                vl = bodRex b
+                vl = hackup (bodRex b)
             in chooseMode vl
                  (N SHUT_INFIX ":=" [xtagApp t as, vl] Nothing)
                  (N OPEN       ":=" [xtagApp t as] (Just vl))
         v ->
-            let vl = valRex (resugarVal v)
+            let vl = hackup (valRex (resugarVal v))
             in chooseMode vl
                  (N SHUT_INFIX ":=" [parens [nameRex self], vl] Nothing)
                  (N OPEN       ":=" [parens [nameRex self]] (Just vl))
+  where
+    hackup (N SHUT_INFIX "-" cs Nothing) = N NEST_PREFIX "|" cs Nothing
+    hackup x                             = x
 
-showAlias :: Text -> Val Text -> Text
-showAlias bind vl =
-    rexFile (joinRex rx)
+showAlias :: TextShape -> Text -> Val Text -> Text
+showAlias shape bind vl =
+    rexFileColor boldColoring (joinRex rx)
   where
     vr = valRex (resugarVal vl)
     rx = chooseMode vr
-             (N SHUT_INFIX "/" [nameRex bind, vr] Nothing)
-             (N OPEN "/" [nameRex bind] (Just vr))
+             (N SHUT_INFIX "/" [textRex shape bind, vr] Nothing)
+             (N OPEN "/" [textRex shape bind] (Just vr))
 
 chooseMode :: GRex a -> GRex a -> GRex a -> GRex a
 chooseMode (N OPEN _ _ _) _    open = open
 chooseMode _              wide _    = wide
 
-printValue :: MonadIO m => Backend m a -> Bool -> Maybe Text -> a -> m ()
-printValue be shallow mBinder vl = do
-    clz <- (if shallow then bShallow else bClosure) be vl
-    liftIO $ putChunk
-           $ (bold . fore cyan . chunk)
-           $ showClz mBinder clz
+printValue :: Bool -> Maybe (TextShape, Text) -> Pln -> ExceptT Text IO ()
+printValue shallow mBinder vl = do
+    let clz = (if shallow then plunShallow else plunClosure) vl
+    putStrLn $ showClz mBinder clz
 
-unsafeValueRex :: Backend m a -> a -> GRex Rex
-unsafeValueRex be vl = unsafePerformIO $ do
-    clz <- bIO be $ bShallow be vl
-    let NAMED_CLOSURE _nam _env val = nameClosure clz
+unsafeValueRex :: Pln -> GRex Rex
+unsafeValueRex vl = unsafePerformIO $ do
+    let NAMED_CLOSURE _nam _env val = nameClosure (plunShallow vl)
     let res = valRex (resugarVal val)
     pure (N OPEN "Δ" [res] Nothing)
 
-showClz :: Maybe Text -> Closure v -> Text
+showClz :: Maybe (TextShape, Text) -> Closure v -> Text
 showClz mBinder clz =
     niceLns True $ fmap T.stripEnd (pins <> tops)
   where
@@ -264,146 +164,110 @@ showClz mBinder clz =
                  Just vl -> Just (showPin n vl)
 
     tops = case (mBinder, val) of
-             (Just n, REF m) | m==n -> []
-             (Just n, _)            -> [showAlias n val]
-             (Nothing, REF _)       -> []
-             (Nothing, _)           -> [showAlias "_" val]
+             (Just (_,n), REF m) | m==n -> []
+             (Just (s,n), _)            -> [showAlias s n val]
+             (Nothing, REF _)           -> []
+             (Nothing, _)               -> [showAlias BARE_WORD "_" val]
 
-
-runCmd :: ∀a m.
-          (Show a, MonadError Text m, MonadIO m)
-       => Backend m a
-       -> (a -> IO (a, a))
-       -> Map Text a
-       -> IORef (Map Text a)
-       -> Cmd a Text Text
-       -> m (Map Text a)
-runCmd be runFx scope vMacros = \case
+runCmd :: (Pln -> IO (Pln, Pln))
+       -> Map Text Pln
+       -> IORef (Map Text Pln)
+       -> Cmd Pln Text Text
+       -> ExceptT Text IO (Map Text Pln)
+runCmd runFx scope vMacros = \case
     ANOTE _ _ -> do
         pure scope
     MKRUL n r -> do
-        rul <- traverse (getRef be scope) r
-        pln <- injectRul be rul >>= bMkPin be
-        printValue be True (Just n) pln
+        rul <- traverse (getRef scope) r
+        let pln = P.mkPin (rulePlun rul)
+        printValue True (Just (BARE_WORD, n)) pln
         pure $ insertMap n pln scope
     PRINT v -> do
-        val <- injectExp be scope v
-        printValue be True Nothing val
+        val <- injectExp scope v
+        printValue True Nothing val
         pure $ insertMap ("_"::Text) val scope
     VOPEN ns x -> do
         -- TODO Use a less hacky approach to avoid this limiatation.
         for_ ns $ \n ->
             when (n == "_") do
                 error "TODO Currently don't support `_` in top-level * binds"
-        v <- injectExp be scope x
+        v <- injectExp scope x
         let s = insertMap "_" v scope
         let a = ALIAS $ zip [0..] ns <&> \(i,n) ->
                   (n, REF "idx" `APP` NAT i `APP` REF "_")
-        runCmd be runFx s vMacros a
+        runCmd runFx s vMacros a
     DUMPY v -> do
-        pln <- injectExp be scope v
-        printValue be False Nothing pln
+        pln <- injectExp scope v
+        printValue False Nothing pln
         pure scope
     CHECK checks -> do
         for checks $ \(raw, v) -> do
-            val <- injectExp be scope v
-            clz <- bShallow be val
-            let NAMED_CLOSURE _ _ top = nameClosure clz
+            val <- injectExp scope v
+            let NAMED_CLOSURE _ _ top = nameClosure (plunShallow val)
             unless (top == 1)
                 $ throwError . rexFile
                 $ N OPEN "!=" [ T BARE_WORD "1" Nothing
                               , (joinRex . valRex . resugarVal) top
                               ]
                 $ Just . joinRex . expRex
-                $ fmap (rawRex @a) raw
+                $ fmap rawRex raw
                     -- TODO Nope, definitly not impossible
         pure scope
     ALIAS [] -> pure scope
     ALIAS ((n,v):m) -> do
-        val <- traverse (getRef be scope) v
-        pln <- bPutVal be val
-        printValue be True (Just n) pln
+        val <- traverse (getRef scope) v
+        pln <- pure (valPlun val)
+        printValue True (Just (BARE_WORD,n)) pln
         let scope' = insertMap n pln scope
-        runCmd be runFx scope' vMacros (ALIAS m)
+        runCmd runFx scope' vMacros (ALIAS m)
     DEFUN [] ->
         pure scope
     DEFUN ((nam, FUN _ _ [] e) : more) -> do
-        pln <- injectExp be scope e
-        printValue be True (Just nam) pln
-        runCmd be runFx (insertMap nam pln scope) vMacros (DEFUN more)
+        pln <- injectExp scope e
+        printValue True (Just (BARE_WORD,nam)) pln
+        runCmd runFx (insertMap nam pln scope) vMacros (DEFUN more)
     DEFUN ((nam, f) : more) -> do
-        fun <- traverse (getRef be scope) (resolveTopFun f)
-        pln <- bMkPin be =<< injectFun be fun
-        printValue be True (Just nam) pln
-        runCmd be runFx (insertMap nam pln scope) vMacros (DEFUN more)
+        fun <- traverse (getRef scope) (resolveTopFun f)
+        pln <- P.mkPin <$> injectFun fun
+        printValue True (Just (BARE_WORD,nam)) pln
+        runCmd runFx (insertMap nam pln scope) vMacros (DEFUN more)
     SAVEV v   -> do
-        pln <- injectExp be scope v
+        pln <- injectExp scope v
         hom <- liftIO getHomeDirectory
-        has <- bDump be (hom <> "/.sire") pln
+        has <- plunSave (hom <> "/.sire") pln
         outBtc has >> outHex has
         pure scope
     IOEFF i r fx -> do
-        pln <- injectExp be scope fx
-        printValue be True (Just "__FX__") pln
+        pln <- injectExp scope fx
+        printValue True (Just (BARE_WORD, "__FX__")) pln
         (rid, res) <- liftIO (runFx pln)
-        printValue be True (Just i) rid
-        printValue be True (Just r) res
+        printValue True (Just (BARE_WORD, i)) rid
+        printValue True (Just (BARE_WORD, r)) res
         pure $ insertMap i rid $ insertMap r res $ scope
-    MACRO v e -> do
-        pln <- injectExp be scope e
-        modifyIORef' vMacros (insertMap v pln)
-        printValue be True (Just $ runeName v) pln
-        pure scope
+    MACRO runeTxt e -> do
+        pln <- injectExp scope e
+        printValue True (Just (THIC_CORD, runeTxt)) pln
+        modifyIORef' vMacros (insertMap runeTxt pln)
+        pure (insertMap runeTxt pln scope)
     EPLOD e -> do
-        putStrLn "_______"
+        putStrLn "██████████"
         liftIO $ putChunk
                $ (bold . fore yellow . chunk)
                $ rexFile
                $ joinRex
                $ expRex
-               $ fmap (fmap joinRex $ unsafeValueRex be)
+               $ fmap (fmap joinRex unsafeValueRex)
                $ e
-        putStrLn "^^^^^^^^"
+        putStrLn "██████████"
         pure scope
 
-rawRex :: ∀v. v -> Rex
+rawRex :: Pln -> Rex
 rawRex x =
-      joinRex
+    joinRex
         $ valRex
         $ resugarVal
         $ fmap P.valName
-        $ unsafePerformIO
-        $ bIO plunBackend
-        $ bGetVal plunBackend
-        $ (unsafeCoerce x :: P.Val)
-
-runeName :: Text -> Text
-runeName r = pack $ concat $ map f $ unpack r
-  where
-    f = \case
-        '`'  -> "Tik"
-        '#'  -> "Hax"
-        '|'  -> "Bar"
-        ','  -> "Com"
-        '@'  -> "Pat"
-        '*'  -> "Tar"
-        '?'  -> "Wut"
-        '$'  -> "Buk"
-        '!'  -> "Zap"
-        '%'  -> "Cen"
-        '+'  -> "Tar"
-        '-'  -> "Hep"
-        '.'  -> "Dot"
-        '/'  -> "Fas"
-        ':'  -> "Col"
-        '<'  -> "Gal"
-        '='  -> "Tis"
-        '>'  -> "Gar"
-        '&'  -> "Pam"
-        '\\' -> "Bak"
-        '^'  -> "Ket"
-        '~'  -> "Sig"
-        c    -> ['_', c, '_']
+        $ plunVal x
 
 envVal :: ∀a. Map Text a -> Val a
 envVal =
@@ -412,46 +276,29 @@ envVal =
     f :: (Text, a) -> (Nat, Val a)
     f (nm, v) = (utf8Nat nm, REF v)
 
-getRef
-    :: MonadError Text m
-    => Backend m a
-    -> Map Text a
-    -> Text
-    -> m a
-getRef be env nam =
-    maybe unresolved pure $ lookup nam env
+getRef :: Map Text Pln -> Text -> ExceptT Text IO Pln
+getRef env nam =
+    maybe unresolved pure (lookup nam env)
   where
-    unresolved =
-        case nam of
-          "__ENV__" -> bPutVal be (envVal env)
-          _         -> throwError ("Unresolved Reference: " <> nam)
+    unresolved = throwError ("Unresolved Reference: " <> nam)
 
-injectExp
-    :: (Show a, MonadIO m, MonadError Text m)
-    => Backend m a
-    -> (Map Text a)
-    -> Exp a Text Text
-    -> m a
-injectExp be scope ast = do
+injectExp :: Map Text Pln -> Exp Pln Text Text -> ExceptT Text IO Pln
+injectExp scope ast = do
     fun <-
-        traverse (getRef be scope) $ flip evalState 0 $ do
+        traverse (getRef scope) $ flip evalState 0 $ do
             sel <- gensym "sel"
             arg <- gensym "arg"
             res <- resolveExp mempty ast
             pure (FUN sel (LN 0) [arg] res)
 
-    v <- injectFun be fun
-    bPutVal be (APP (REF v) (NAT 0))
+    v <- injectFun fun
+    pure $ valPlun (APP (REF v) (NAT 0))
 
-injectFun
-    :: (Show a, MonadIO m, MonadError Text m)
-    => Backend m a
-    -> Fun a Refr a
-    -> m a
-injectFun be (FUN self nam args exr) = do
-    (_, b) <- expBod be (nex, tab) exr
+injectFun :: Fun Pln Refr Pln -> ExceptT Text IO Pln
+injectFun (FUN self nam args exr) = do
+    (_, b) <- expBod (nex, tab) exr
     let rul = RUL nam (fromIntegral ari) b
-    injectRul be rul
+    pure (rulePlun rul)
   where
     ari = length args
     nex = succ ari
@@ -485,29 +332,27 @@ numRefs k = \case
     go = numRefs k
 
 optimizeLet
-    :: ∀m a
-    . (Show a, MonadError Text m, MonadIO m)
-    => Backend m a
-    -> (Int, IntMap (Int, Bod a))
+    :: (Int, IntMap (Int, Bod Pln))
     -> Refr
-    -> Exp a Refr a
-    -> Exp a Refr a
-    -> m (Int, Bod a)
-optimizeLet be s@(nex, tab) refNam expr body = do
+    -> Exp Pln Refr Pln
+    -> Exp Pln Refr Pln
+    -> ExceptT Text IO (Int, Bod Pln)
+optimizeLet s@(nex, tab) refNam expr body = do
   let recurRef = numRefs k expr > 0
       multiRef = numRefs k body >= 2
   if
     trivialExp expr || (not recurRef && not multiRef)
   then do
-    (varg, vv) <- expBod be s expr
+
+    (varg, vv) <- expBod s expr
     let s' = (nex, insertMap k (varg, vv) tab)
-    (barg, bb) <- expBod be s' body
+    (barg, bb) <- expBod s' body
     let rarg = if (varg == 0) then 0 else barg
     pure (rarg, bb)
   else do
     let s' = (nex+1, insertMap k (0, var nex) tab)
-    (varg, vv) <- expBod be s' expr
-    (barg, bb) <- expBod be s' body
+    (varg, vv) <- expBod s' expr
+    (barg, bb) <- expBod s' body
     let rarg = if (varg == 0 || barg == 0) then 0 else barg-1
     pure (rarg, BLET vv bb)
   where
@@ -564,19 +409,16 @@ freeVars = goFun mempty
 --  TODO If we lifted anything, need to replace self-reference with a
 --       new binding.
 lambdaLift
-    :: ∀m a
-     . (Show a, MonadError Text m, MonadIO m)
-    => Backend m a
-    -> (Int, IntMap (Int, Bod a))
-    -> Fun a Refr a
-    -> m (Exp a Refr a)
-lambdaLift be _s f@(FUN self tag args body) = do
+    :: (Int, IntMap (Int, Bod Pln))
+    -> Fun Pln Refr Pln
+    -> ExceptT Text IO (Exp Pln Refr Pln)
+lambdaLift _s f@(FUN self tag args body) = do
     let lifts = toList (freeVars f)
     let liftV = EVAR <$> lifts
     let self' = self { refrKey = 2348734 }
     let body' = EREC self (app (EVAR self') liftV)  body
     let funct = FUN self' tag (lifts <> args) body'
-    pln <- injectFun be funct
+    pln <- injectFun funct
     pure $ app (EREF pln) liftV
   where
     app fn []     = fn
@@ -620,42 +462,40 @@ inlineTrivial s@(_, tab) (FUN self tag args body) =
         EPAT x f p -> EPAT x (go f) (over _2 go <$> p)
 
 expBod
-    :: ∀m a
-     . (Show a, MonadError Text m, MonadIO m)
-    => Backend m a
-    -> (Int, IntMap (Int, Bod a))
-    -> Exp a Refr a
-    -> m (Int, Bod a)
-expBod be s@(_, tab) = \case
-    EBED b         -> do ari <- bArity be b
+    :: (Int, IntMap (Int, Bod Pln))
+    -> Exp Pln Refr Pln
+    -> ExceptT Text IO (Int, Bod Pln)
+expBod s@(_, tab) = \case
+    EBED b         -> do let ari = P.trueArity b
                          pure (fromIntegral ari, BCNS (REF b))
     ENAT n         -> pure (atomArity n, BCNS (NAT n))
     EBAR n         -> pure (1, BCNS (BAR n))
-    ELAM f         -> expBod be s =<< lambdaLift be s (inlineTrivial s f)
-    ELIN f         -> expBod be s =<< lambdaLift be s (inlineTrivial s f)
+    ELAM f         -> expBod s =<< lambdaLift s (inlineTrivial s f)
+    ELIN f         -> expBod s =<< lambdaLift s (inlineTrivial s f)
                         -- TODO Inlining
     EVAR REFR{..}  -> pure $ fromMaybe (error "Internal Error")
                            $ lookup refrKey tab
-    EREF t         -> do args <- bArity be t
-                         pure (fromIntegral args, BCNS (REF t))
-    EAPP f x       -> do fR <- expBod be s f
-                         xR <- expBod be s x
+    EREF t         -> pure ( fromIntegral (P.trueArity t)
+                           , BCNS (REF t)
+                           )
+    EAPP f x       -> do fR <- expBod s f
+                         xR <- expBod s x
                          pure $ case (fR, xR) of
                                  ((_, fv),     (0,xv)   )   -> (0,   BAPP fv xv)
                                  ((0, fv),     (_,xv)   )   -> (0,   BAPP fv xv)
                                  ((1, fv),     (_,xv)   )   -> (0,   BAPP fv xv)
                                  ((a, BCNS fk),(_,BCNS xk)) -> (a-1, BCNS (APP fk xk))
                                  ((a, fv),     (_,xv)   )   -> (a-1, BAPP fv xv)
-    EREC n v b     -> optimizeLet be s n v b
-    ELET n v b     -> optimizeLet be s n v b
+    EREC n v b     -> optimizeLet s n v b
+    ELET n v b     -> optimizeLet s n v b
     ETAB ds        -> doTab ds
     EVEC vs        -> doVec vs
     ECOW n         -> pure (fromIntegral n, BCNS (COW n)) -- TODO What arity?
     ECAB n         -> pure (length n, BCNS (CAB n))       -- TODO What arity?
     EHAZ haz       -> do
         hom <- liftIO getHomeDirectory
-        pln <- bLoad be (hom <> "/.sire") haz
-        arg <- bArity be pln
+        pln <- plunLoad (hom <> "/.sire") haz
+        arg <- pure (P.trueArity pln)
         pure (fromIntegral arg, BCNS (REF pln))
     EOPN{} -> error "Macro-expand [*] before this step"
     EBAT{} -> error "Macro-expand [*] before this step"
@@ -664,7 +504,7 @@ expBod be s@(_, tab) = \case
 
   where
     doVec vs = do
-        es <- traverse (expBod be s) vs
+        es <- traverse (expBod s) vs
 
         let ex = vecApp (vecLaw $ fromIntegral $ succ $ length vs) (snd <$> es)
 
@@ -672,13 +512,13 @@ expBod be s@(_, tab) = \case
                then (1, ex)
                else (0, ex)
 
-    doTab :: Map Nat (Exp a Refr a) -> m (Int, Bod a)
+    doTab :: Map Nat (Exp Pln Refr Pln) -> ExceptT Text IO (Int, Bod Pln)
     doTab ds = do
         let tups = M.toAscList ds
             keyz = fst <$> tups
             exps = snd <$> tups
 
-        rs <- traverse (expBod be s) exps
+        rs <- traverse (expBod s) exps
 
         let aris = fst <$> rs
             vals = snd <$> rs
@@ -860,18 +700,11 @@ resolveExp e = \case
 
 -- Plun Printer ----------------------------------------------------------------
 
-showPlun :: P.Val -> IO Text
-showPlun vl = do
-    runExceptT (bShallow plunBackend vl) >>= \case
-        Left err -> error (unpack err)
-        Right cz -> pure (showClz Nothing cz)
+showPlun :: P.Val -> Text
+showPlun = showClz Nothing . plunShallow
 
 
 -- Hacky Snapshot System -------------------------------------------------------
-
-hashPath :: FilePath -> ByteString-> FilePath
-hashPath dir haz =
-    (dir <> "/" <> (unpack $ encodeBtc haz))
 
 bsHex :: ByteString -> Text
 bsHex = decodeUtf8 . ("%0x" <>) . toStrict . toLazyByteString . byteStringHex
@@ -882,52 +715,3 @@ outHex = liftIO . putChunkLn . bold . fore grey . chunk . bsHex
 outBtc :: MonadIO m => ByteString -> m ()
 outBtc = liftIO . putChunkLn . bold . fore yellow . chunk . encodeBtc
 
-saveSnapshot :: FilePath -> P.Val -> IO ByteString
-saveSnapshot dir = \case
-    P.VAL _ (P.PIN p) -> savePin p
-    vl                -> P.mkPin' vl >>= savePin
-  where
-    savePin (P.P{..}) = do
-        createDirectoryIfMissing True dir
-
-        -- outHex pinBlob
-        let pax = hashPath dir pinHash
-        exists <- doesFileExist pax
-        unless exists $ do
-            for_ pinRefs (saveSnapshot dir . P.nodVal . P.PIN)
-            unless (null pinRefs) $ do
-                let dep = pax <> ".deps"
-                putStrLn ("WRITE FILE: " <> pack dep)
-                writeFile dep $ concat $ fmap P.pinHash pinRefs
-            putStrLn ("WRITE FILE: " <> pack pax)
-            writeFile pax pinBlob
-
-        pure pinHash
-
-loadSnapshot :: FilePath -> ByteString -> IO P.Val
-loadSnapshot dir key = do
-    book <- P.stBook <$> readIORef P.state
-    case lookup key book of
-        Just rl -> pure $ P.nodVal (P.PIN rl)
-        Nothing -> loadSnapshotDisk dir key
-
-loadDeps :: FilePath -> ByteString -> IO (Vector ByteString)
-loadDeps dir key = do
-    let pax = hashPath dir key <> ".deps"
-    doesFileExist pax >>= \case
-        False -> pure mempty
-        True  -> fromList . parseDeps <$> readFile pax
-  where
-    parseDeps :: ByteString -> [ByteString]
-    parseDeps bs | null bs = []
-    parseDeps bs           = take 32 bs : parseDeps (drop 32 bs)
-
-loadSnapshotDisk :: FilePath -> ByteString -> IO P.Val
-loadSnapshotDisk dir key = do
-    createDirectoryIfMissing True dir
-    let pax = hashPath dir key
-    rfhz <- loadDeps dir key
-    bytz <- readFile pax
-    refs <- for rfhz (loadSnapshot dir)
-    valu <- capBSExn refs bytz
-    evaluate (force $ P.mkPin valu)

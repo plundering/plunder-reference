@@ -56,27 +56,38 @@ Here are the rules we use to resolve this problem:
 -}
 
 module Sire.Backend
-    ( Backend(..)
-    , Closure(..)
+    ( Closure(..)
     , NamedClosure(..)
     , nameClosure
-    , injectRul
+    , rulePlun
     , makeShallow
     , valBod
     , bodVal
     , optimizeRul
+    , Pln
+    , plunSave
+    , plunLoad
+    , valPlun
+    , plunVal
+    , plunClosure
+    , plunShallow
     )
 where
 
 import PlunderPrelude
 import Sire.Types
+import System.Directory
+import Plun.Print
 
-import Control.Monad.State (State, evalState, get, put)
-import Data.Vector         ((!))
+import Control.Monad.State  (State, evalState, runState, get, put)
+import Data.Vector          ((!))
+import Jar                  (capBSExn)
+import Plun                 (pattern AT, (%%))
 
 import qualified Data.Char   as C
 import qualified Data.Text   as T
 import qualified Data.Vector as V
+import qualified Plun      as P
 
 --------------------------------------------------------------------------------
 
@@ -110,20 +121,6 @@ valName :: Val a -> LawName
 valName (LAW n _ _) = n
 valName _           = LN 0
 
-data Backend m val = BACKEND
-    { bArity    :: val -> m Nat
-    , bPutVal   :: Val val -> m val
-    , bMkPin    :: val -> m val
-    , bClosure  :: val -> m (Closure val)
-    , bShallow  :: val -> m (Closure val)
-    , bGetVal   :: val -> m (Val val)
-    , bGetAlias :: val -> m (Maybe (Val val))
-    , bDump     :: FilePath -> val -> m ByteString
-    , bLoad     :: FilePath -> ByteString -> m val
-    , bIO       :: ∀a. m a -> IO a
-    , bIOErr    :: ∀a. m a -> IO (Either Text a)
-    }
-
 --  This is a hack to make a full-load look like a shallow load.
 --  Backends should support actual shallow loads for performance reasons,
 --  but this is a stop-gap hack on the way towards building that out.
@@ -137,10 +134,8 @@ makeShallow (CLOSURE env top) = CLOSURE env' top
                Right v                -> Left (lawNameNat $ valName v)
                Left nm                -> Left nm
 
-injectRul :: Show a => MonadError Text m => Backend m a -> Rul a -> m a
-injectRul be dumbRule = do
-    rul <- optimizeRul (bGetAlias be) dumbRule
-    bPutVal be (rulVal rul)
+rulePlun :: Rul Pln -> Pln
+rulePlun = valPlun . rulVal . optimizeRul
 
 rulVal :: Rul a -> Val a
 rulVal (RUL (LN nm) ar bd) =
@@ -149,51 +144,43 @@ rulVal (RUL (LN nm) ar bd) =
           `APP` (bodVal bd)
 
 {-
-    Removes extraneous BAD
+    Removes extraneous CNS
 -}
-optimizeRul :: ∀a m. (Show a, Monad m) => (a -> m (Maybe (Val a))) -> Rul a -> m (Rul a)
-optimizeRul loadAlias =
-    \ (RUL nm ar bd)
-    → RUL nm ar <$> go ar bd
-         -- traceM $ show (rulBody inp)
-         -- traceM $ show (rulBody res)
-         -- pure res
+optimizeRul :: Rul Pln -> Rul Pln
+optimizeRul (RUL nm ar bd) =
+    RUL nm ar (go ar bd)
   where
-    go :: Nat -> Bod a -> m (Bod a)
+    go :: Nat -> Bod Pln -> Bod Pln
     go maxArg = \case
-        BLET v b -> BLET <$> go (maxArg+1) v <*> go (maxArg+1) b
-        BAPP f x -> BAPP <$> go maxArg f <*> go maxArg x
-        BVAR v   -> pure $ BVAR v
-        BBAD v   -> pure $ BBAD v
-        BCNS v   -> do
-            isCodeShaped maxArg loadAlias v >>= \case
-                False -> pure (BBAD v)
-                True  -> pure (BCNS v)
+        BLET v b -> BLET (go (maxArg+1) v) (go (maxArg+1) b)
+        BAPP f x -> BAPP (go maxArg f) (go maxArg x)
+        BVAR v   -> BVAR v
+        BBAD v   -> BBAD v
+        BCNS v   -> if isCodeShaped maxArg v then BCNS v else BBAD v
 
 -- 0, 1, ...
 -- (0 f x)
 -- (1 v b)
 -- (2 c)
-isCodeShaped :: Monad m => Nat -> (a -> m (Maybe (Val a))) -> Val a -> m Bool
-isCodeShaped maxArg loadAlias = loop
+isCodeShaped :: Nat -> Val Pln -> Bool
+isCodeShaped maxArg = loop
   where
     loop = \case
-        NAT n                 -> pure (n<=maxArg)
-        APP (APP (NAT 0) _) _ -> pure True
-        APP (APP (NAT 1) _) _ -> pure True
-        APP (NAT 2)         _ -> pure True
+        NAT n                 -> n <= maxArg
+        APP (APP (NAT 0) _) _ -> True
+        APP (APP (NAT 1) _) _ -> True
+        APP (NAT 2)         _ -> True
 
-        REF r                 -> loadAlias r >>= \case
-                                     Just rv -> loop rv
-                                     Nothing -> pure False
-        APP (REF r) a         -> loadAlias r >>= \case
+        REF (plunAlias -> Just rv) -> loop rv
+        REF _                      -> False
+        APP (REF r) a         -> case plunAlias r of
                                      Just rv -> loop (rv `APP` a)
-                                     Nothing -> pure False
-        APP (APP (REF r) a) b -> loadAlias r >>= \case
+                                     Nothing -> False
+        APP (APP (REF r) a) b -> case plunAlias r of
                                      Just rv -> loop (rv `APP` a `APP` b)
-                                     Nothing -> pure False
+                                     Nothing -> False
 
-        _                     -> pure False
+        _                     -> False
 
 bodVal :: Bod a -> Val a
 bodVal = \case
@@ -273,3 +260,153 @@ assignNames initialNms =
 
     nmCount :: Map Text Int
     nmCount = foldr (alterMap (Just . maybe 1 succ)) mempty initialNms
+
+-- Plun Backend ----------------------------------------------------------------
+
+type Pln = P.Val
+
+type GetPlun v = State (Int, Map ByteString Int, [(v, Val Int)])
+
+valPlun :: Val P.Val -> P.Val
+valPlun (NAT a)     = AT a
+valPlun (REF v)     = v
+valPlun (APP f x)   = valPlun f %% valPlun x
+valPlun (BAR b)     = P.mkBar b
+valPlun (ROW r)     = P.mkRow (toList $ valPlun <$> r)
+valPlun (LAW n a b) = P.mkLaw n a (valPlun $ bodVal b)
+valPlun (COW n)     = P.nodVal $ P.DAT $ P.COW n
+valPlun (TAB t)     = P.nodVal $ P.DAT $ P.TAB $ (valPlun <$> t)
+valPlun (CAB k)     = P.nodVal $ P.DAT $ P.CAB k
+
+plunAlias :: P.Val -> Maybe (Val P.Val)
+plunAlias (P.VAL _ P.PIN{}) = Nothing
+plunAlias (P.VAL _ topNod)  = Just (nod topNod)
+  where
+    go (P.VAL _ n) = nod n
+    nod = \case
+        n@P.PIN{}       -> REF (P.nodVal n)
+        P.NAT a         -> NAT a
+        P.DAT (P.BAR b) -> BAR b
+        P.DAT (P.ROW r) -> ROW (go <$> r)
+        P.DAT (P.TAB t) -> TAB (go <$> t)
+        P.DAT (P.COW n) -> COW n
+        P.DAT (P.CAB n) -> CAB n
+        P.APP f x       -> APP (nod f) (go x)
+        P.LAW P.L{..}   -> LAW lawName lawArgs (valBod lawArgs $ go lawBody)
+
+-- TODO This is very slow, directly implementing shallow load should
+-- be pretty easy.  Just do it.
+plunShallow :: Pln -> Closure Pln
+plunShallow = makeShallow . plunClosure
+
+plunClosure :: P.Val -> Closure P.Val
+plunClosure inVal =
+    let (top, (_,_,stk)) = runState (go inVal) (0, mempty, [])
+    in CLOSURE (fmap (over _2 Right) $ fromList $ reverse stk) top
+  where
+    go :: P.Val -> GetPlun P.Val (Val Int)
+    go (P.VAL _ nod) =
+        case nod of
+            P.NAT a         -> pure (NAT a)
+            P.DAT (P.BAR b) -> pure (BAR b)
+            P.DAT (P.ROW r) -> ROW <$> traverse go r
+            P.DAT (P.TAB t) -> TAB <$> traverse go t
+            P.DAT (P.COW n) -> pure (COW n)
+            P.DAT (P.CAB n) -> pure (CAB n)
+            P.APP f x       -> goCel (P.nodVal f) x
+            P.PIN b         -> REF <$> goPin b
+            P.LAW (P.L{..}) -> do
+                b <- go lawBody
+                pure $ LAW lawName lawArgs (valBod lawArgs b)
+
+    goCel x y = APP <$> go x <*> go y
+
+    goPin :: P.Pin -> GetPlun P.Val Int
+    goPin P.P{..} = do
+        (_, tabl, _) <- get
+        case lookup pinHash tabl of
+            Just i -> pure i
+            Nothing -> do
+                kor <- (pinItem,) <$> go pinItem
+                (nex, tab, stk) <- get
+                let tab' = insertMap pinHash nex tab
+                put (nex+1, tab', kor:stk)
+                pure nex
+
+-- TODO Better to return (Val P.Pin), but dont want to add another
+-- type varibale to the Backend abstration.  Once we kill the abstraction,
+-- then we should simplify this.
+plunVal :: P.Val -> Val P.Val
+plunVal = goVal
+  where
+    goVal (P.VAL _ n) = goNod n
+
+    goNod :: P.Nod -> Val P.Val
+    goNod = \case
+        vl@P.PIN{}       -> REF (P.nodVal vl)
+        P.NAT a          -> NAT a
+        P.APP x y        -> APP (goNod x) (goVal y)
+        P.LAW P.L{..}    -> LAW lawName lawArgs
+                                $ valBod lawArgs
+                                $ goVal lawBody
+        P.DAT (P.BAR b)  -> BAR b
+        P.DAT (P.COW n)  -> COW n
+        P.DAT (P.CAB ks) -> CAB ks
+        P.DAT (P.ROW xs) -> ROW (goVal <$> xs)
+        P.DAT (P.TAB t)  -> TAB (goVal <$> t)
+
+
+-- Hacked Together Snapshotting ------------------------------------------------
+
+hashPath :: FilePath -> ByteString -> FilePath
+hashPath dir haz =
+    (dir <> "/" <> (unpack $ encodeBtc haz))
+
+plunSave :: MonadIO m => FilePath -> P.Val -> m ByteString
+plunSave dir = liftIO . \case
+    P.VAL _ (P.PIN p) -> savePin p
+    vl                -> P.mkPin' vl >>= savePin
+  where
+    savePin (P.P{..}) = do
+        createDirectoryIfMissing True dir
+
+        let pax = hashPath dir pinHash
+        exists <- doesFileExist pax
+        unless exists $ do
+            for_ pinRefs (plunSave dir . P.nodVal . P.PIN)
+            unless (null pinRefs) $ do
+                let dep = pax <> ".deps"
+                putStrLn ("WRITE FILE: " <> pack dep)
+                writeFile dep $ concat $ fmap P.pinHash pinRefs
+            putStrLn ("WRITE FILE: " <> pack pax)
+            writeFile pax pinBlob
+
+        pure pinHash
+
+plunLoad :: MonadIO m => FilePath -> ByteString -> m P.Val
+plunLoad dir key = liftIO do
+    book <- P.stBook <$> readIORef P.state
+    case lookup key book of
+        Just rl -> pure $ P.nodVal (P.PIN rl)
+        Nothing -> loadSnapshotDisk dir key
+
+loadDeps :: FilePath -> ByteString -> IO (Vector ByteString)
+loadDeps dir key = do
+    let pax = hashPath dir key <> ".deps"
+    doesFileExist pax >>= \case
+        False -> pure mempty
+        True  -> fromList . parseDeps <$> readFile pax
+  where
+    parseDeps :: ByteString -> [ByteString]
+    parseDeps bs | null bs = []
+    parseDeps bs           = take 32 bs : parseDeps (drop 32 bs)
+
+loadSnapshotDisk :: FilePath -> ByteString -> IO P.Val
+loadSnapshotDisk dir key = do
+    createDirectoryIfMissing True dir
+    let pax = hashPath dir key
+    rfhz <- loadDeps dir key
+    bytz <- readFile pax
+    refs <- for rfhz (plunLoad dir)
+    valu <- capBSExn refs bytz
+    evaluate (force $ P.mkPin valu)
