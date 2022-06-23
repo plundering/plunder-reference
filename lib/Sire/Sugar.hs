@@ -22,7 +22,6 @@ import qualified Data.Foldable as Foldable
 
 desugarCmd :: XCmd z -> Cmd z Text Text
 desugarCmd (XVOPEN vs x)           = VOPEN vs (desugarExp x)
-desugarCmd (XANOTE c k)            = ANOTE c k
 desugarCmd (XALIAS nvs)            = ALIAS (nvs <&> \(n,v) -> (n,desugarVal v))
 desugarCmd (XPRINT v)              = PRINT (desugarExp v)
 desugarCmd (XDUMPY v)              = DUMPY (desugarExp v)
@@ -80,20 +79,14 @@ desugarExp = \case
   XECOW n               -> ECOW n
   XECAB n               -> ECAB n
   XETAB rs              -> ETAB (go <$> rs)
-  XECOR n b fs          -> ECOR n (go b) (fs <&> goArm)
-  XEBAT v x b           -> EBAT v (go x) (go b)
   XELAM (XFUN n r b)    -> ELAM (goLam n r b)
-  XELIN (XFUN t r b)    -> ELIN (goLam t r b)
-  XEPAT x f ps          -> EPAT (go x) (go f) (over _2 go <$> ps)
+  XELIN xs              -> ELIN (go <$> xs)
  where
-  goFun t rs b = FUN (xtagIdn t) (xtagNam t) rs (go b)
   goLam t rs b = FUN (xtagIdn t) (lambTag t) rs (go b)
   go = desugarExp
 
   lambTag (XTAG _  _ (Just t)) = t
   lambTag (XTAG nm _ Nothing)  = LN (utf8Nat nm)
-
-  goArm (XFUN t rs b) = (xtagIdn t, goFun t rs b)
 
 xtagIdn :: XTag -> Text
 xtagIdn (XTAG n _ _) = n

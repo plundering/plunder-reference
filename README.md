@@ -55,9 +55,13 @@ system from top to bottom. We need a computational formalism that:
     isn't just a security or privacy problem, it means we can't rely on
     portability between interpreters.
 
+-   The formalism must still be able to handle realistic loads. We can
+    not punt on things the mainstream world wants because otherwise they
+    won't use this formalism in the first place. Real users have real
+    amounts of data, often in the hundreds of gigabytes.
 
-Running and Understanding the System
-====================================
+Running the System
+==================
 
 You will need to install `lmdb` and Haskell's `stack` to build this.
 
@@ -65,12 +69,204 @@ You will need to install `lmdb` and Haskell's `stack` to build this.
     $ sire tests/laws.sire
 
 To understand the system you should start by reading
-[laws.sire](tests/laws.sire).  It starts by giving a brief explanation
-of all of the technologies involved, and then proceeds to bootstrap the
-whole world from scratch.
+[laws.sire](tests/laws.sire).  It starts by giving a brief explanation of
+all of the technologies involved, and then proceeds to bootstrap the
+whole world from scratch: from the low level formalism, it builds up
+natural number math, data structure definitions, and even the BLAKE3 hash
+function. The rest of this document will give examples using the
+environment defined in `tests/laws.sire`, explaining the why and how.
 
-Specifications can be found in [doc/](doc/), but they are
-presented formally and without much explanation.  The "Tours" in
+But why? And why not Lisp?
+==========================
+
+In a radically understandable system, the user-programmer must be able to
+inspect everything. Everything must be a value and there must be no
+hidden state. The entirety of the system should be expressed in one data
+structure; the entire system should be homoiconic.
+
+When we mention homoiconicity, people ask, "Why not Lisp?" The simple
+answer is that most Lisps, in practice, aren't homoiconic:
+
+    $ nix-shell -p chez
+    $ petite
+    Petite Chez Scheme Version 9.5.8
+    Copyright 1984-2022 Cisco Systems, Inc.
+
+    > (car '(a b))
+    a
+    > (car (lambda (x) (add x 2)))
+    Exception in car: #<procedure> is not a pair
+    Type (debug) to enter the debugger.
+    >
+
+What is this `#<procedure>` thing? Why is a function encoded as something
+other than a bunch of cons cells? That is Lisp's claim to fame, no? This
+is a real issue and not a nit because this means you can't send all
+values across a network interface. I can't write a function value (or
+better yet, a partially applied function value), send it across a socket
+and have the other side execute it.
+
+Along the same lines, the environment means you have hidden state which
+affects how functions execute. This is hidden state:
+
+    > (define (op x) (+ x 5))
+    > (define (doit x) (op x))
+    > (doit 2)
+    7
+    > (define (op x) (+ x 10))
+    > (doit 2)
+    12
+    >
+
+We have changed what is essentially a global variable and have changed
+how the function executes. What would it mean to serialize `doit` and
+sent it across the wire for remote execution, when there's an implicit
+dependency on an environment?
+
+Most Lisps are filled with built-ins which are not well specified. For
+example, what sort of thing is the `-` function? It's a built in that you
+can't inspect and which is implementation defined:
+
+    > -
+    #<procedure ->
+    > (car -)
+    Exception in car: #<procedure -> is not a pair
+    Type (debug) to enter the debugger.
+    >
+
+Many lisps have other data structures. For example, vectors for memory
+locality:
+
+    > `#(1 2 3)
+    #(1 2 3)
+    > (car `#(1 2 3))
+    Exception in car: #(1 2 3) is not a pair
+    Type (debug) to enter the debugger.
+    >
+
+But once again, the vector doesn't have a canonical form as a list if you
+try to inspect them. This vector data type is a primitive and does not
+have a representation in the unenriched lambda calculus.
+
+What is the Plunder project? Plunder defines an encoding of the
+unenriched lambda calculus on top of binary trees of natural numbers,
+where everything in the system is a binary tree value, while still being
+performant by allowing what would be built-in primitive functions like
+subtract or data structures like vectors with memory locality to have
+definitions given in the binary tree formalism.
+
+Show me a demo of why that matters
+----------------------------------
+
+Let's say we have a network with multiple nodes...
+
+[TODO: The network stack isn't finished yet, for now, this test uses
+multiple local plunder Processes in the same Machine. Once that's
+completed, all that changes is the syscalls being used. Nothing is
+conceptually different.]
+
+...and you have two different processes that want to talk to each
+other. Runtime support should be able to handle passing any value between
+processes.
+
+```
+= [server parentId selfId arg]
+@ st | mkState selfId
+| recvFrom st {parentId}
+? [loop st from func]
+@ ret | func arg
+| sendTo st parentId ret
+& [st]
+| recvFrom st {parentId} loop
+```
+
+Since this is the first time you might have seen sire syntax, we'll
+comment every line in the example with what it does:
+
+```
+; Declare a function `server` which takes three args.
+= [server parentId selfId arg]
+; @ is a let bind, and | is shorthand for function call.
+; This is equivalent to `let st = mkState selfId`
+@ st | mkState selfId
+; Calls the recvFrom function with st and a "row" (contiguous memory
+; vector) with one element: parentId. recvFrom (defined elsewhere) has
+; arity of 3. It's third argument is on the next line.
+| recvFrom st {parentId}
+; Define a named loop lambda which can be referred to later in the
+; definition. This is called CPS style from recvFrom once we've received
+; a message from parentId.
+? [loop st from func]
+; This server executes the passed in function against the arguments
+@ ret | func arg
+; Another function call. This sends the result back to our parent.
+| sendTo st parentId ret
+; Define an anonymous lambda that can't be referenced. It has one
+; argument, st.
+& [st]
+; This loops.
+| recvFrom st {parentId} loop
+```
+
+When spawned as a process, this function listens for messages from its
+parent, treats the message as a function, and sends the result of running
+that function against a constant argument passed in at spawn time.
+
+Since functions are pure values, you can just pass them around, including
+over network wires. Including partially applied functions.
+
+Including partially applied functions where the interpreter has a faster
+implementation, like `sub` (the equivalent of Scheme's `-` above). You
+can pass this value over the wire:
+
+    foldl sub 10000
+
+While the Plunder formalism is "just" binary trees of natural numbers, an
+interpreter can use any representation that's a proper bijection to
+it. And that bijection can contain higher level concepts like, "This
+binary tree value pattern matches to the well known specification of
+natural number subtract, just run natural number subtract instead of
+performing all the raw lambda term substitutions."
+
+But even when pattern matched by the interpreter, `sub` is still a value
+you can print and inspect.
+
+    $ sire tests/laws.sire
+    [a ton of output, printing out each value in the standard library]
+
+    > sub
+    [sub a b]:=[exec:dec a b]
+
+    > lawBody | pinItem sub
+    _/[0 [0 exec-dec 1] 2]
+
+You might complain that focusing so hard on partial application is a
+distraction (we disagree, since a lot of functions in Haskell are defined
+in terms of smaller functions), so let's focus on data structures.
+
+In the unenriched lambda calculus, index based vectors are partially
+applied functions.
+
+    > {1 2 3 4}
+    {1 2 3 4}
+
+    > mkRow 4 1 2 3 4
+    {1 2 3 4}
+
+This value is also statically pattern matchable by the interpreter and
+can be replaced with whatever array like data structure the host language
+has instead of doing all the lambda term manipulation. Likewise,
+functions that operate on vectors can be statically recognizable so that
+they can then operate on that memory optimized structure.
+
+And if an interpreter doesn't implement this pattern matching, it doesn't
+break semantics at all.
+
+More Documentation
+==================
+
+Specifications can be found in [doc/](doc/), but they are presented
+formally and without much explanation.  The "Tours" in
 [laws.sire](tests/laws.sire) are much more accessible:
 
 -   [PLUNDER_SPEC.txt](doc/PLUNDER_SPEC.txt)
@@ -79,7 +275,6 @@ presented formally and without much explanation.  The "Tours" in
 -   [MACHINE_SPEC.md](doc/MACHINE_SPEC.md)
 
 This project is a stack of technologies:
-
 
 Plunder: The Runtime System
 ---------------------------

@@ -240,16 +240,16 @@
 ;;  Some features that are not yet implemented compile-time functions
 ;;  and inlined-functions.
 ;;
-;;    (f x)?>x     ;;  All saturated calls to `f` will be inlined.
+;;    [! f x]?x     ;;  All saturated calls to `f` will be inlined.
 ;;
-;;    (f x)?>>x    ;;  All saturated calls to `f` will be fully evaluated
-;;                 ;;  at compile time (as long as no arguments refer
-;;                 ;;  to dynamic arguments)
+;;    [!! f x]?>>x  ;;  All saturated calls to `f` will be fully evaluated
+;;                  ;;  at compile time (as long as no arguments refer
+;;                  ;;  to dynamic arguments)
 ;;
-;;    (f ! x)      ;;  Explictly as for the expression (f x) to be inlined.
+;;    (f ! x )      ;;  Explictly as for the expression (f x) to be inlined.
 ;;
-;;    (f !! x)     ;;  Explictly as for the expression (f x) to be
-;;                 ;;  compile-time evaluated.
+;;    (f !! x)      ;;  Explictly as for the expression (f x) to be
+;;                  ;;  compile-time evaluated.
 ;;
 ;;  Some Syntatic Sugar
 ;;  -------------------
@@ -261,6 +261,31 @@
 ;;      x-z|y-z      ==>  [[x z] [y z]]
 ;;
 ;;      @ [f x]=x f  ==>  @ f (f x ? x) f
+;;
+;;  Commands
+;;  --------
+;;
+;;  = x y         ;;  Value definition
+;;  = [f x] f     ;;  Function definition
+;;  = [! f x] f   ;;  Inline Function definition
+;;  = [!! f x] f  ;;  Static Function definition
+;;  = "*" macro   ;;  Macro definition
+;;
+;;  ??expr        ;;  Assert than an expression equals `1`.
+;;
+;;  <expr         ;;  Do a deep-print of the result of `expr`, showing the
+;;                ;;  value and the transitive closure of all of the pins
+;;                ;;  that it references.
+;;
+;;  <<expr        ;;  Save a value to a key-value store and print the hash
+;;                ;;  The printed hash can then be used as an identifier.
+;;
+;;  #?expr        ;;  Show macro-expansion of `expr`.
+;;
+;;  {i r}<-{a b}  ;;  Pass the requests (effects) `a` and `b` to the
+;;                ;;  runtime system, and wait for a response.  i is the
+;;                ;;  index of the request that is being responded to,
+;;                ;;  and `r` is the response.
 ;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -285,9 +310,7 @@ mkPin=4
 = (apply f x)  | f x
 = (supply x f) | f x
 
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; Basic Operations on Vals ;;
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+= (compose g f y) | g f-y
 
 = (isNat x) | valCase _&0 [_ _ _]&0 [_ _]&0 1 x
 = (isApp x) | valCase _&0 [_ _ _]&0 [_ _]&1 0 x
@@ -302,20 +325,20 @@ mkPin=4
 = (appHead x) | valCase _&0 [_ _ _]&0 [i _]&i 0 x
 = (appTail x) | valCase _&0 [_ _ _]&0 [_ i]&i 0 x
 
-! pinItem [4 1]
-! lawArgs [pinItem I]
-! lawName [mkLaw 1 8 0]
-! lawArgs [mkLaw 0 1 0]
-! lawBody [mkLaw 0 8 1]
-! appHead [1 0]
-! appTail [0 1]
+?? pinItem [4 1]
+?? lawArgs [pinItem I]
+?? lawName [mkLaw 1 8 0]
+?? lawArgs [mkLaw 0 1 0]
+?? lawBody [mkLaw 0 8 1]
+?? appHead [1 0]
+?? appTail [0 1]
 
 ;;;;;;;;;;;;;;;;;;;;;;;
 ;; Strict Evaluation ;;
 ;;;;;;;;;;;;;;;;;;;;;;;
 
 = (force x)     | lawBody [mkLaw 0 1 x]
-= (seq x y)     | natCase y _?y y
+= (seq x y)     | natCase y _&y x
 = (deepseq x y) | seq force-x y
 = (trk x y)     | deepseq x y
 = (trkVal k v)  | trk {k v} v
@@ -396,26 +419,26 @@ cdr/appTail
 = (min x y) | if lte-x-y x y
 = (max x y) | if gth-x-y x y
 
-! inc ( add 0   0   )
-! inc ( add 0   0-0 )
-! inc ( add 0-0 0   )
-! inc ( add 0-0 0-0 )
-! add 0 1
-! add 1 0
+?? inc ( add 0   0   )
+?? inc ( add 0   0-0 )
+?? inc ( add 0-0 0   )
+?? inc ( add 0-0 0-0 )
+?? add 0 1
+?? add 1 0
 
-! aeq 5 5
-! aeq 6 mul-2-3
-! aeq 2 sub-4-2
-! gth 4 3
-! gte 4 3
-! gte 4 4
-! aeq 0 sub-3-4
-! aeq 0 sub-3-3
-! aeq 1 sub-3-2
-! aeq 2 sub-3-1
-! aeq 3 sub-3-0
-! aeq 0 1-2
-! aeq 1-2 0
+?? aeq 5 5
+?? aeq 6 mul-2-3
+?? aeq 2 sub-4-2
+?? gth 4 3
+?? gte 4 3
+?? gte 4 4
+?? aeq 0 sub-3-4
+?? aeq 0 sub-3-3
+?? aeq 1 sub-3-2
+?? aeq 2 sub-3-1
+?? aeq 3 sub-3-0
+?? aeq 0 1-2
+?? aeq 1-2 0
 
 ;;;;;;;;;;;;;;;;;;
 ;; Val Equality ;;
@@ -439,14 +462,14 @@ cdr/appTail
 
 (neq x y)=[not | eql x y]
 
-! eql 0    0
-! eql 99   99
-! eql I    I
-! eql _&0  _&0
-! eql (0 0) (0 0)
-! eql (K 0) (K 0)
-! eql (K K) (K K)
-! eql 0,1,2 0,1,2
+?? eql 0    0
+?? eql 99   99
+?? eql I    I
+?? eql _&0  _&0
+?? eql (0 0) (0 0)
+?? eql (K 0) (K 0)
+?? eql (K K) (K K)
+?? eql 0,1,2 0,1,2
 
 = (execStrict f z x)
 | ifZero x z
@@ -503,13 +526,13 @@ cdr/appTail
 
 byteWeld=[bitWeld 8]
 
-! eql 1 [mix 0 1]
-! eql 1 [mix 1 0]
-! eql 3 [mix 2 1]
-! eql 1 [mix 2 3]
-! eql 0 [roundUp 0 4]
-! eql 4 [roundUp 3 4]
-! eql 8 [roundUp 5 4]
+?? eql 1 [mix 0 1]
+?? eql 1 [mix 1 0]
+?? eql 3 [mix 2 1]
+?? eql 1 [mix 2 3]
+?? eql 0 [roundUp 0 4]
+?? eql 4 [roundUp 3 4]
+?? eql 8 [roundUp 5 4]
 
 ;;;;;;;;;;
 ;; Rows ;;
@@ -540,11 +563,11 @@ byteWeld=[bitWeld 8]
 | and eql-0-[lawBody hed]
 | eql-1-[lawName hed]
 
-! isRow {}
-! isRow {1}
-! isRow {1 2}
-! not (isRow %{1 2})
-! not (isRow isRow)
+?? isRow {}
+?? isRow {1}
+?? isRow {1 2}
+?? not (isRow %{1 2})
+?? not (isRow isRow)
 
 ;
 ; This is "row index", but it will actually
@@ -579,10 +602,10 @@ byteWeld=[bitWeld 8]
 | if eql-ix-dep [1 tel]
 | [0 inc-dep]
 
-! eql 0 [idx 0][S]
-! eql K [idx 0][S K S]
-! eql S [idx 1][S K S]
-! eql 0 [idx 2][S K S]
+?? eql 0 [idx 0][S]
+?? eql K [idx 0][S K S]
+?? eql S [idx 1][S K S]
+?? eql 0 [idx 2][S K S]
 
 = (get v i) | idx i v
 = (len v)   | dec [arity head-v]
@@ -603,65 +626,114 @@ byteWeld=[bitWeld 8]
 = (match v fb ps)
 | switch idx-0-v fb ps
 
-! aeq 3 natArgs-0
-! aeq 5 natArgs-1
-! aeq 3 natArgs-2
-! aeq 1 natArgs-3
-! aeq 1 natArgs-4
-! aeq 1 natArgs-5
-! arity arity
-! arity 3
-! arity 4
-! arity 0-1-2
-! aeq 2 arity-[0 0]
-! aeq 3 arity-0
-! isHed isHed
-! isNat 3
-! isHed 3
-! isHed 0
-! not [isHed 1-1]
+?? aeq 3 natArgs-0
+?? aeq 5 natArgs-1
+?? aeq 3 natArgs-2
+?? aeq 1 natArgs-3
+?? aeq 1 natArgs-4
+?? aeq 1 natArgs-5
+?? arity arity
+?? arity 3
+?? arity 4
+?? arity 0-1-2
+?? aeq 2 arity-[0 0]
+?? aeq 3 arity-0
+?? isHed isHed
+?? isNat 3
+?? isHed 3
+?? isHed 0
+?? not [isHed 1-1]
 
-;;;;;;;;;;;;;;;;
-;; Basic ADTs ;;
-;;;;;;;;;;;;;;;;
 
-; TODO Consider using atoms in place of {atom} patterns.
-;     -   For example, NONE=0 (SOME x)={0 x}
-;     -   This requires more complex pattern matching code.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; data Option a = NONE | SOME a ;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-= NONE {0}
-= SOME (x)!{1 x}
+;;;
+;;; TODO Consider using { NONE=0; (SOME x)={x}; }
+;;;
 
-= NIL  {0}
-= CONS (x xs)!{1 x xs}
+= NONE     {0}
+= (SOME x) {1 x}
 
-= (option n s x) | match x 0 {n s-[idx 1 x]}
-= (fromSome n x) | option n v&v x
+= optionCase
+& [opt non som]
+| switch idx-0-opt 0
+, non
+, ! som idx-1-opt
 
-= (listLen x)
-| match x 0 {0 inc-[listLen get-x-2]}
+(fromSome n x)=[! optionCase x n I]
+
+?? ! optionCase SOME-0 0 inc
+?? ! optionCase SOME-1 0 I
+?? ! optionCase SOME-2 0 dec
+?? ! optionCase NONE   1 die
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; data Either a b = LEFT a | RIGHT a ;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;;;
+;;; TODO Consider using { NONE=0; (SOME x)={x}; }
+;;;
+
+= (LEFT x)  {0 x}
+= (RIGHT x) {1 x}
+
+= eitherCase
+& [x l r]
+| switch idx-0-x 0
+, ! l idx-1-x
+, ! r idx-1-x
+
+(fromRight l x)=[! eitherCase x l I]
+
+?? ! eitherCase RIGHT-0 K-0 inc
+?? ! eitherCase RIGHT-1 K-0 I
+?? ! eitherCase RIGHT-2 K-0 dec
+?? ! eitherCase LEFT-9  K-1 die
+?? ! eitherCase LEFT-1  I   die
+?? ! eitherCase LEFT-0  inc die
+
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; data List a = NIL | CONS a (List a) ;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;;;
+;;; TODO Consider using { NIL=0; (CONS x xs)={x xs}; }
+;;;
+
+= NIL         {0}
+= (CONS x xs) {1 x xs}
+
+= [listCase xs nil cons]
+| switch idx-0-xs 0
+, nil
+, [! cons idx-1-xs idx-2-xs]
 
 = (listMap f l)
-+ l
-= 0      | NIL
-= 1,x,xs | CONS f-x listMap-f-xs
+! listCase l NIL
+& (x xs)
+! CONS f-x listMap-f-xs
+
+(listTurn l f)=(listMap f l)
 
 = (listHead l)
-+ l
-= 0     | NONE
-= 1,x,_ | SOME x
+! listCase l NONE
+& (x _) SOME!x
 
-= (listSafeHead f l)
-+ l
-= {0}     f
-= {1 x _} x
+= (listSafeHead fb l)
+! listCase l fb (x _ & x)
 
 (listUnsafeHead l)=(listSafeHead 0)
 
-! eql NONE   | listHead NIL
-! eql SOME-3 | listHead [CONS 3 [CONS 4 NIL]]
-! eql 5      | fromSome 4 [SOME 5]
-! eql 4      | fromSome 4 NONE
+?? eql NONE   | listHead NIL
+?? eql SOME-3 | listHead [CONS 3 [CONS 4 NIL]]
+?? eql 5      | fromSome 4 [SOME 5]
+?? eql 4      | fromSome 4 NONE
 
 ;;;;;;;;;;;;;;;;;;;;
 ;; Row Operations ;;
@@ -749,19 +821,19 @@ byteWeld=[bitWeld 8]
 
 = (has ele row) | [any eql-ele row]
 
-! | aeq 12 | sum 3,4,5
-! | eql {1 2 3 4 5 6 7 8 9}
+?? | aeq 12 | sum 3,4,5
+?? | eql {1 2 3 4 5 6 7 8 9}
   | concat , {} {1} {2 3} {4 5 6} {7 8} {9} {}
 
-! eql {}        | take 0  , 1 2 3 4
-! eql {1}       | take 1  , 1 2 3 4
-! eql {1 2 3 4} | take 4  , 1 2 3 4
-! eql {1 2 3 4} | take 20 , 1 2 3 4
-! eql {1 2 3 4} | drop 0  , 1 2 3 4
-! eql {2 3 4}   | drop 1  , 1 2 3 4
-! eql {4}       | drop 3  , 1 2 3 4
-! eql {}        | drop 4  , 1 2 3 4
-! eql {}        | drop 20 , 1 2 3 4
+?? eql {}        | take 0  , 1 2 3 4
+?? eql {1}       | take 1  , 1 2 3 4
+?? eql {1 2 3 4} | take 4  , 1 2 3 4
+?? eql {1 2 3 4} | take 20 , 1 2 3 4
+?? eql {1 2 3 4} | drop 0  , 1 2 3 4
+?? eql {2 3 4}   | drop 1  , 1 2 3 4
+?? eql {4}       | drop 3  , 1 2 3 4
+?? eql {}        | drop 4  , 1 2 3 4
+?? eql {}        | drop 20 , 1 2 3 4
 
 = (chunks i v)
 | ifZero [len v] {}
@@ -771,13 +843,13 @@ byteWeld=[bitWeld 8]
 | loop [drop i v]
 | acc | take i v
 
-! eql {1 2 3 4}     | drop 0 1,2,3,4
-! eql {}            | drop 10 1,2,3,4
-! eql {}            | chunks 3 {}
-! eql {{1}}         | chunks 3 {1}
-! eql {{1 2 3}}     | chunks 3 {1 2 3}
-! eql {{1 2 3} {4}} | chunks 3 {1 2 3 4}
-! has %aa {%aa %bb}
+?? eql {1 2 3 4}     | drop 0 1,2,3,4
+?? eql {}            | drop 10 1,2,3,4
+?? eql {}            | chunks 3 {}
+?? eql {{1}}         | chunks 3 {1}
+?? eql {{1 2 3}}     | chunks 3 {1 2 3}
+?? eql {{1 2 3} {4}} | chunks 3 {1 2 3 4}
+?? has %aa {%aa %bb}
 
 ;;;;;;;;;;;
 ;; Lists ;;
@@ -788,17 +860,16 @@ byteWeld=[bitWeld 8]
 = (implode x) | rap 8 x
 
 = (listFoldl f z l)
-+ l
-= 0 z
-= {1 x xs}
+! listCase l z
+& (x!xs)
 @ fzx [f z x]
 | seq fzx
 | listFoldl f fzx xs
 
 = (listFoldr f z l)
-+ l
-= 0      | z
-= 1,x,xs | f x [listFoldr f z xs]
+! listCase l z
+& (x!xs)
+| f x [listFoldr f z xs]
 
 = (listLen l)           | listFoldr (x acc & inc acc) 0 l
 = (listSum l)           | listFoldr add 0 l
@@ -811,37 +882,31 @@ byteWeld=[bitWeld 8]
 = (listAll f v)         | listAnd listMap-f-v
 = (listAny f v)         | listOr listMap-f-v
 = (listHas e xs)        | listAny eql-e xs
-= (listEnumFrom n)      | CONS n [listEnumFrom inc-n]
+= (listEnumFrom n)      ! CONS n [listEnumFrom inc-n]
 
 = (listWeld a b)
-+ a
-= {0} b
-= {1 x xs}
-| CONS x
-| listWeld xs b
+! listCase a b
+& (x xs)
+! CONS x [listWeld xs b]
 
 ; Lis (Lis a) > Lis a
 = (listConcat ls)
-+ ls
-= {0} NIL
-= {1 x xs}
+! listCase ls NIL
+& (x!xs)
 | listWeld x
 | listConcat xs
 
 = (listTake num lis)
 | ifZero num NIL
-+ lis
-= {0} NIL
-= {1 x xs}
-| CONS x
+! listCase lis NIL
+& (x!xs)
+! CONS x
 | listTake dec-num xs
 
 = (listDrop num lis)
 | ifZero num lis
-+ lis
-= {0} NIL
-= {1 x xs}
-| listDrop dec-num xs
+! listCase lis NIL
+| (x!xs & listDrop dec-num xs)
 
 ; Convert a nat into a list of digits.
 ; TODO: Use `until`?
@@ -853,32 +918,29 @@ byteWeld=[bitWeld 8]
 | ifZero mor acc
 @ char [add [mod mor 10] "0"]
 @ left [div mor 10]
-| loop left (CONS char acc)
+| loop left [! CONS char acc]
 
 ; Convert a nat into a row of digits.
 = (digits num) [listToRow | listDigits num]
 
-= (listZipWith f a b)
-+ a
-= {0} NIL
-= {1 a as}
-+ b
-= {0} NIL
-= {1 b bs}
-| CONS f-a-b
-| listZipWith f as bs
+= (listZipWith f al bl)
+! listCase al NIL
+& (a!as)
+! listCase bl NIL
+& (b!bs)
+! CONS f-a-b
+  [listZipWith f as bs]
 
 (listZip a b)=[listZipWith R2 a b]
 
-! @ expect  | CONS {3 4} | CONS {4 5} NIL
-  @ compute | listZip listFromRow-{3 4} listFromRow-{4 5}
-  | eql expect compute
+?? @ expect  ! CONS {3 4} ! CONS {4 5} NIL
+   @ compute | listZip listFromRow-{3 4} listFromRow-{4 5}
+   | eql expect compute
 
 = (listFilter f lis)
-+ lis
-= {0} NIL
-= {1 x xs}
-| if f-x [CONS x listFilter-f-xs]
+! listCase lis NIL
+& (x!xs)
+| if f-x [! CONS x listFilter-f-xs]
 | listFilter f xs
 
 (listNull lis)=[isZero idx-0-lis]
@@ -890,23 +952,21 @@ byteWeld=[bitWeld 8]
 ;;      implementation.
 
 = (listMinimumOn f a bs)
-+ bs
-= {0} a
-= {1 x xs}
+! listCase bs a
+& (x!xs)
 | listMinimumOn f
    | if (lth f-x f-a) x a
 | xs
 
 = (listSortOn f lis)
-+ lis
-= 0 NIL
-= {1 x xs}
+! listCase lis NIL
+& (x!xs)
 @ fst | listMinimumOn f x xs
 @ fky | f fst
 @ rst | listSortOn f
       | listFilter x&[not | eql fky f-x]
       | lis
-| CONS fst rst
+! CONS fst rst
 
 = (sortOn f row)
 | listToRow
@@ -921,9 +981,8 @@ byteWeld=[bitWeld 8]
 
 = (tabIdx key tab)
 @ keys [lawBody head-tab]
-+ find-key-keys
-= 0    0
-= 1,i  idx-i-tab
+! optionCase [find key keys] 0
+| (i & idx i tab)
 
 = (look tab key)  | tabIdx key tab
 = (tabKeys tab)   | lawBody head-tab
@@ -938,10 +997,10 @@ byteWeld=[bitWeld 8]
 = (tabMatch val fal tab)
 | tabSwitch idx-0-val fal tab
 
-! eql 8 | tabIdx 0 %{0=8}
-! eql 9 | tabIdx %aa %(bb=8, aa=9)
-! tabHas %aa %(bb=8, aa=9)
-! not | tabHas %cc %(bb=8, aa=9)
+?? eql 8 | tabIdx 0 %{0=8}
+?? eql 9 | tabIdx %aa %(bb=8, aa=9)
+?? tabHas %aa %(bb=8, aa=9)
+?? not | tabHas %cc %(bb=8, aa=9)
 
 = (tabFromRow rawPairs)
 @ pairs | sortOn idx-0 rawPairs
@@ -958,6 +1017,8 @@ byteWeld=[bitWeld 8]
 ; trk %{zipped=[listZip ks vs]}
 | listToRow | listZip ks vs
 
+(tabToList tab)=[listFromRow | tabToRow tab]
+
 ; TODO Doesn't overwrite correctly
 = (tabPut tab key val)
 ; trk , tab
@@ -967,12 +1028,12 @@ byteWeld=[bitWeld 8]
 | weld tabToRow-tab
 | {{key val}}
 
-! | eql    %{foo=3 bar=4 zaz=5}
-  | tabPut %{foo=3 bar=4}       %zaz 5
+?? | eql    %{foo=3 bar=4 zaz=5}
+   | tabPut %{foo=3 bar=4}       %zaz 5
 
 ; TODO Doesn't overwrite correctly
-; ! | eql    %{foo=3 bar=4 zaz=5}
-;   | tabPut %{foo=3 bar=4 zaz=0} %zaz 5
+; ?? | eql    %{foo=3 bar=4 zaz=5}
+;    | tabPut %{foo=3 bar=4 zaz=0} %zaz 5
 
 ;;;;;;;;;;;
 ;; Bytes ;;
@@ -989,19 +1050,49 @@ byteWeld=[bitWeld 8]
 
 (showNat n)=[cordConcat | digits n]
 
-(natE n)={1 showNat-n}
-(varE v)={1 v}
-(cnsE v)={4 v}
-(appE xs)={0 "|" xs 0}
-(vecE vals)={0 ',' vals 0}
-(letE i x b)={0 "@" {i x} b}
-(recE i x b)={0 "~" {i x} b}
+= (EROR mesg)           | mesg
+= (NODE rune kids)      | {0 rune kids}
+= (HEIR rune kids heir) | {0 rune kids heir}
+= (WORD text)           | {1 text}
+= (TEXT text)           | {2 text}
+= (PAGE text)           | {3 text}
+= (VRAW cnst)           | {4 cnst}
 
-(cordE t)={1 showNat-t} ;; TODO 2?
+= [! rexCase rex node bare text page embd]
+| switch idx-0-rex 0
+, ! node idx-1-rex idx-2-rex idx-3-rex
+, ! bare idx-1-rex
+, ! text idx-1-rex
+, ! page idx-1-rex
+, ! embd idx-1-rex
 
-(genSym n)={1 (cordWeld "_g" showNat-n)}
+= [! rexGetNode rex fb node]
+! rexCase rex node (_ & fb) (_ & fb) (_ & fb) (_ & fb)
 
-(mergeRexCont xs mK)=[if eql-0-mK xs (weld xs ,mK)]
+= [! rexGetWord rex fb bare]
+! rexCase rex (_ _ _ & fb) bare (_ & fb) (_ & fb) (_ & fb)
+
+= [! rexGetText rex fb text]
+! rexCase rex (_!_!_ & fb) (!_ & fb) text (!_ & fb) (!_ & fb)
+
+= (natE n)     | WORD showNat-n
+= (varE v)     | WORD v
+= (cnsE v)     | VRAW v
+= (appE xs)    | NODE "|" xs
+= (appE2 x y)  | NODE "|" {x y}
+= (vecE vals)  | NODE ',' vals
+= (letE i x b) | HEIR "@" {i x} b
+= (recE i x b) | HEIR "~" {i x} b
+= (txtE t)     | TEXT t
+= (gensymE n)  | WORD [cordWeld "_g" showNat-n]
+
+= (mergeRexCont xs mK)
+| if eql-0-mK xs (weld xs ,mK)
+
+= [! rexGetNodeFolded rex fb node]
+@ folded & (rune kids cont)
+         ! node rune (mergeRexCont kids cont)
+! rexCase rex folded (!_ & fb) (!_ & fb) (!_ & fb) (!_ & fb)
 
 ; (Tab Rex > Rex)
 = (tabE tab)
@@ -1009,15 +1100,14 @@ byteWeld=[bitWeld 8]
       & kv
       @ k idx-0-kv
       @ v idx-1-kv
-      {0 '=' {{1 showNat-k} v} 0}
-| {0 '%' {vecE-kvs} 0}
+      | NODE '=' {[WORD showNat-k] v}
+| NODE '%' {vecE-kvs}
 
 ;; Macro Utilities ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 = (macroRowSequence results)
-+ [listFilter isNat listFromRow-results]
-= {0}     results
-= {1 e _} e
+@ lis [listFilter isNat listFromRow-results]
+! listCase lis results (e _ & e)
 
 (macroTraverse f xs)=[macroRowSequence map-f-xs]
 
@@ -1084,50 +1174,56 @@ byteWeld=[bitWeld 8]
 
 ; TODO Return Option value
 = (readSymbol rex)
-+ rex
-= {1 n} | if okaySymbol-n 0-n
-        | "Invalid Character in Symbol"
-= _     | "`readSymbol` Expected a NAME node"
+! rexGetWord rex """`readSymbol` expected a NAME node
+& !n
+| ifZero okaySymbol-n "Invalid Character in Symbol"
+| {n}
 
 = (readRowOfNames ctx rex)
 @ err
    | cordWeld ctx
    | " pattern must be a symbol (x) or a row of: (x,y,z)"
-+ rex
-= _ err
-= {1 _}
-   @ res | macroRowSequence {readSymbol-rex}
-   | if isNat-res res
-   | map cdr res
-= {0 rune args cont}
-   | if (neq rune ",") | err
-   | if (neq cont 0)   | "name-sequence cannot have a continuation"
-   @ res | macroTraverse readSymbol args
-   | if isNat-res res
-   | map cdr res
+! rexCase rex
+         & (rune!args!cont)
+         | if (neq rune ",") | err
+         | if (neq cont 0)   | "name-sequence cannot have a continuation"
+         @ res | macroTraverse readSymbol args
+         | if isNat-res res
+         | map cdr res
+      & !_
+      @ res readSymbol-rex
+      | if isNat-res res
+      | {idx-0-res}
+   (!_ & err)
+   (!_ & err)
+   (!_ & err)
 
-#= "*"
+= macroOpenRow
 | gensymMacro , readRowOfNames "In *~ names list,"
               , I
               , I
 & (nex names vecExp bodExp)
-@ tmpIdn genSym-nex
+@ tmpIdn gensymE-nex
 @ bindSlots
    ? (bindSlots lis)
-   + lis
-   = {0} bodExp
-   = {1 idxVar more}
+   ! listCase lis bodExp
+   & (idxVar!more)
    @ ix idx-0-idxVar
    @ vr idx-1-idxVar
-   | letE {1 vr} appE-{cnsE-idx natE-ix tmpIdn}
+   | letE [WORD vr] appE-{cnsE-idx natE-ix tmpIdn}
    | bindSlots more
 , 1
 , | letE tmpIdn vecExp
   | bindSlots (listZip listEnumFrom-0 listFromRow-names)
 
+#= "*," macroOpenRow
+
+#= "*" macroOpenRow ;; TODO This should work with both rows and tabs
+
 = [opnE vars expr body]
-@ names {0 "," map-varE-vars 0}
-| {0 "*" {names expr body} 0}
+@ names [NODE "," map-varE-vars]
+; trkVal "OPEN"
+| NODE "*" {names expr body}
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Macro: Value Recursion (Knots) ;;
@@ -1138,24 +1234,21 @@ byteWeld=[bitWeld 8]
    . NIL rex
    ? (loop acc more)
    | if eql-0-more acc
-   + more
-   = _ "Knot binders must be a node"
-   = {0 rune xs mK}
-   | if neq-"="-rune
-      | "Knot binders must be a = node"
-   | if (neq 2 len-xs)
-      | "Knot binders must be a = node with two parameters"
+   | rexGetNode more "Knot binders must be a node"
+   & (rune!xs!mK)
+   | if neq-"="-rune   """Knot binders must be a = node
+   | if (neq 2 len-xs) """Knot binders must be a = node with two parameters"
    * {lhs rhs} xs
    @ sym (readSymbol lhs)
    | if isNat-sym sym
-   | loop (CONS {cdr-sym rhs} acc) mK
+   | loop [! CONS {cdr-sym rhs} acc] mK
 | if res res
 | listToRowReversed-res
 
 #= ":"
 | gensymMacro {readBindPairs I}
 & (nex bindPairs body)
-@ knotRef  | genSym nex
+@ knotRef  | gensymE nex
 @ bindSymz | map idx-0 bindPairs
 @ bindVals | map idx-1 bindPairs
 , 1
@@ -1238,8 +1331,8 @@ byteWeld=[bitWeld 8]
 
 (B x)=(natBar x) ;; TODO This should be a "Compile Time Function"
 
-! | eql B"fdsafdsa"
-  | barWeld B"fds" B"afdsa"
+?? | eql B"fdsafdsa"
+   | barWeld B"fds" B"afdsa"
 
 ; TODO Remove this when B becomes a compile-time function.
 emptyBar=(B"")
@@ -1250,12 +1343,11 @@ emptyBar=(B"")
 = (barIntercalate sep vals)
 . emptyBar listFromRow-vals
 ? (go acc res)
-+ res
-= {0} acc
-= {1 x xs}
-+ xs
-= {0} | barWeld acc x
-= _   | go (barConcat acc,x,sep) xs
+! listCase res acc
+& (x xs)
+! listCase xs [barWeld acc x]
+& (_ _)
+| go (barConcat acc,x,sep) xs
 
 ;;;;;;;;;;;;;;;;;;
 ;; 32-bit Words ;;
@@ -1735,17 +1827,15 @@ st
 
 ; (h > cv > h)
 = (b3HasherPushStack h cv)
-@ st | CONS cv
-     | b3HasherGetCvStack h
+@ st ! CONS cv [b3HasherGetCvStack h]
 | b3HasherPutCvStack h st
 
 ; (hashState > {cv hashState})
 = (b3HasherPopStack hSt)
-+ [b3HasherGetCvStack hSt]
-= 0
-   | die "Trying to pop empty stack"
-= 1,top,res
-   , top (b3HasherPutCvStack hSt res)
+! listCase [b3HasherGetCvStack hSt]
+   | die """Trying to pop empty stack
+& [! top res]
+| (top, b3HasherPutCvStack hSt res)
 
 ; "Section 5.1.2 of the blake3 spec explains
 ; this algorithm in more detail."
@@ -1813,11 +1903,9 @@ st
 @ out [b3ChunkstOutput h.b3HasherGetChunkst]
 . out h.b3HasherGetCvStack
 ? (go output stack)
-+ stack
-= {0} | b3OutputRootOutputBytes
-        output
-        outHashSize
-= {1 top res}
+! listCase stack
+  | b3OutputRootOutputBytes output outHashSize
+& top!res
 @ output
    | b3ParentOutput
      top
@@ -1877,14 +1965,13 @@ hexAlphabet=[natBar "0123456789abcdef"]
 | if isLaw-non
    | go-set-[lawBody non]
 | if [listHas non set] set
-| CONS non set
+! CONS non set
 
 ; Lookup into a map encoded as a list
 ; of {k v} pairs.
 = (listLookup key l)
-+ l
-= {0} NONE
-= {1 x xs}
+! listCase l NONE
+& x!xs
 * {k v} x
 | if [eql k key] [SOME v]
 | listLookup key xs
@@ -1897,6 +1984,573 @@ hexAlphabet=[natBar "0123456789abcdef"]
 , | bitWeld 0 (bex sSz)
   | mix [takeBits dec-sSz aSz]
         [lsh nat dec-sSz]
+;;;;;;;;;;;;;;;;;;;;;;;;
+;; Macro: Rex Quoting ;;
+;;;;;;;;;;;;;;;;;;;;;;;;
+
+#= "```"
+& (env nex xs mK)
+@ args (mergeRexCont xs mK)
+| if (neq 1 len-args) "Expected 1 Parameter"
+, 0 cnsE-(idx-0-args)
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Some Monadic Operations on `Option` ;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;; sequence :: Row [Option a] -> Option [Row a]
+= (optionRowSequence results)
+. NIL listFromRow-results
+? (loop acc rest)
+! listCase rest
+   SOME![listToRowReversed acc]
+& mX!more
+! optionCase mX NONE
+& x [loop CONS!x!acc more]
+
+(optionRowTraverse f xs)=[optionRowSequence map-f-xs]
+
+?? | eql NONE
+   | optionRowSequence {SOME-3 SOME-4 NONE}
+
+?? | eql SOME-{3 4 5}
+   | optionRowSequence {SOME-3 SOME-4 SOME-5}
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Some Monadic Operations on `Either` ;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+= (eitherMap f val)
+! eitherCase val LEFT (x & RIGHT f-x)
+
+;; sequence :: Row [Either a b] -> Either a [Row b]
+= (eitherRowSequence results)
+. NIL listFromRow-results
+? (loop acc rest)
+! listCase rest
+   RIGHT![listToRowReversed acc]
+& (eth more)
+! eitherCase eth LEFT
+& x [loop CONS!x!acc more]
+
+(eitherRowTraverse f xs)=[eitherRowSequence map-f-xs]
+
+?? | eql LEFT-"hi"
+   | eitherRowSequence {RIGHT-3 LEFT-"hi" RIGHT-4}
+
+?? | eql RIGHT-{3 4 5}
+   | eitherRowSequence {RIGHT-3 RIGHT-4 RIGHT-5}
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Macro: Monadic Bind on Macro Result ;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+#= "#@"
+? (macroGuardedLet env nex xs mK)
+@ args (mergeRexCont xs mK)
+| if (neq 3 len-args) "Expected 3 parameters"
+* {var exp bod} args
+@ guardedBod
+   | appE
+   , cnsE-if
+   , appE {4,isNat var}
+   , var
+   , bod
+| 0,[NODE "@" {var exp guardedBod}]
+
+?? | eql %foo
+   @ xxx %foo
+   | if isNat-xxx xxx
+   %bar
+
+?? | eql %foo
+   #@ xxx %foo
+   %bar
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Parsing Nat Literals ;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+; (Char > Some Nat)
+= (readDigit char)
+| tabSwitch char NONE
+% , ("0" = SOME-0)
+    ("1" = SOME-1)
+    ("2" = SOME-2)
+    ("3" = SOME-3)
+    ("4" = SOME-4)
+    ("5" = SOME-5)
+    ("6" = SOME-6)
+    ("7" = SOME-7)
+    ("8" = SOME-8)
+    ("9" = SOME-9)
+;; TODO Better syntax for tab literals
+
+; (Nat > Maybe Nat)
+= (readNat n)
+@ mDigits [optionRowTraverse readDigit explode-n]
+! optionCase mDigits NONE
+& nums
+@ f
+   & (elem rest)
+   * {pos acc} rest
+   (mul 10 pos, add acc mul-pos-elem)
+| ifZero len-nums NONE
+! SOME [idx 1 | foldr f {1 0} nums]
+
+?? eql SOME-1   readNat-"1"
+?? eql SOME-12  readNat-"12"
+?? eql SOME-123 readNat-"123"
+?? eql NONE     readNat-""
+?? eql NONE     readNat-"a"
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Macro: Atomic Switch ;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+= [readNatEither msg nat]
+! optionCase [readNat nat] LEFT-msg (x & RIGHT-x)
+
+= [readNatWord rex]
+@ msg """Not an atom literal
+! rexGetWord rex LEFT-msg
+| (word & readNatEither msg word)
+
+= [readAtomLit rex]
+@ bad "Not an atom literal"
+! rexCase rex
+      & (rune kids heir)
+      | if  | rowOr
+            , neq "%" rune
+            , neq 0   heir
+            , neq 1   len-kids
+         | LEFT bad
+       ! rexGetWord idx-0-kids "Invalid Nat Literal"
+       | (num & RIGHT num)
+  (x & readNatEither!bad!x)
+  (x & RIGHT-x)
+  (x & RIGHT-x)
+  (v & if isNat-v RIGHT-v LEFT-bad)
+
+; (Rex > Rex > (Or Nat {Maybe-Nat Rex}))
+= (readSwitchPattern pat)
+; trkVal %SWITCHPAT
+| if  | and [eql 1   idx-0-pat]
+            [eql "_" idx-1-pat]
+   | RIGHT NONE
+; die {pat readAtomLit-pat}
+! eitherCase [readAtomLit pat]
+   (x & LEFT-x)
+   (x & (RIGHT SOME-x))
+
+; (Rex > Rex > (Or Nat {Maybe-Nat Rex}))
+= (derpSwitchPattern pat exp)
+! eitherCase [readSwitchPattern pat]
+    (err & err)
+& nat
+| (nat, exp)
+
+
+; TODO Support non-= continuations
+= (unrollSlip2Tis fb rex)
+. NIL rex
+? (loop acc form)
+@ fallback
+    ! eitherCase fb-form I
+    | (right & loop CONS-right-acc 0)
+| if (eql 0 form)
+   | listToRowReversed-acc
+! rexGetNode form fallback
+& (n kids heir)
+@ nkid len-kids
+| if (neq "=" n) fallback
+| if  | and eql-1-nkid neq-0-heir
+   @ kid idx-0-kids
+   | loop CONS-{kid heir}-acc 0
+| if (neq 2 nkid)
+    """= node expects two parameters
+| loop CONS-kids-acc heir
+
+= (readSwitchPatterns rex)
+@ fb
+   & form
+   | RIGHT
+   , WORD "_"
+   , form
+@ clauses [unrollSlip2Tis fb rex]
+| if isNat-clauses clauses
+@ cases [macroTraverse (rowApply derpSwitchPattern) clauses]
+| if isNat-cases cases
+. {cnsE-0 %{}} cases
+| foldl
+& (acc patExp)
+* pat,exp   patExp
+* _,caseTab acc
+! optionCase pat
+   [put acc 0 exp]
+& k
+| put acc 1 [tabPut caseTab k exp]
+
+#= "`"
+| simpleMacro {I readSwitchPatterns}
+& (expr patterns)
+; trkVal %LusPamResult
+* fb,ps patterns
+@ canUseRowIndex
+   | listAnd
+   | listZipWith eql listEnumFrom-0
+   | listFromRow tabKeys-ps
+@ rowImpl | appE {cnsE-switch    expr fb vecE-[tabValues ps]}
+@ tabImpl | appE {cnsE-tabSwitch expr fb tabE-ps}
+| if canUseRowIndex rowImpl tabImpl
+
+= (switchTest x)
+` x
+= 346    B"346"
+= 345    B"345"
+= %hi    B"hi"
+= "yop"  B"yop"
+| B"hur"
+
+?? eql B"346" switchTest-346
+?? eql B"345" switchTest-345
+?? eql B"hi"  switchTest-(%hi)
+?? eql B"yop" switchTest-"yop"
+?? eql B"hur" switchTest-45
+
+= (switchTest2 x)
+` x
+= _ %Other
+= 0 %Zero
+= 1 %One
+= 2 %Two
+= 3
+| barNat B"Three"
+
+?? eql %Three switchTest2-3
+?? eql %Two   switchTest2-2
+?? eql %Other switchTest2-9
+
+= (switchTest3 x)
+` x
+= 0 %Zero
+= 1 %One
+= 2 %Two
+%Fallback
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Printing Rex Expressions ;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+= (valRex expr)
+| TEXT "EMBED VAL"
+
+= (showRex expr)
+! rexCase expr
+      & (r!x!k)
+      @ hed | barConcat
+            , B"["
+            , | barIntercalate B" "
+              | if (eql r '|') map-showRex-x
+              | weld {natBar-r} map-showRex-x
+            , B"]"
+      | if (eql k 0) hed
+      | barWeld hed showRex-k
+   (!name & natBar name)
+   (!cord & barConcat {B'"' natBar-cord B'"'})
+   (!page & showRex (TEXT cordConcat-page))
+   (!cnst & showRex valRex-cnst)
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Scratch Pad: Pronouncing Numbers ;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+= (natWords n)
+` n
+= 0 %Zero
+. n
+? (loop n)
+` n
+= 0 ""
+= 1 %One
+= 2 %Two
+= 3 %Three
+= 4 %Four
+= 5 %Five
+= 6 %Six
+= 7 %Seven
+= 8 %Eight
+= 9 %Nine
+| cordConcat
+, loop [div n 10]
+, natWords [mod n 10]
+
+?? eql %ThreeFourFive natWords-345
+?? eql %Zero          natWords-0
+?? eql %OneZero       natWords-10
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Scratch Pad: Testing Rex Printing ;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+?? eql B'[]'      [showRex ```[]]
+?? eql B'3'       [showRex ```3]
+?? eql B'"3"'     [showRex ```"3"]
+
+| showRex
+``` = (showRex expr)
+    ! rexCase expr
+          & (r!x!k)
+          @ hed | barConcat
+                , B"["
+                , | barIntercalate B" "
+                  | if (eql r '|') map-showRex-x
+                  | weld {natBar-r} map-showRex-x
+                , B"]"
+          | if (eql k 0) hed
+          | barWeld hed showRex-k
+       (!name & natBar name)
+       (!cord & barConcat {B'"' natBar-cord B'"'})
+       (!page & showRex (TEXT cordConcat-page))
+       (!cnst & showRex valRex-cnst)
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Macro: Equality Operator ;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+#= "=="
+& (env nex params maybeCont)
+@ args mergeRexCont-params-maybeCont
+` len-args
+= 0 (0, natE 1)
+= 1 (0, appE (cnsE seq, idx 0 args, natE 1))
+= 2 (0, appE (cnsE eql, idx 0 args, idx 1 args))
+, 1
+, @ tmp gensymE-nex
+  | letE tmp idx-0-args
+  . [listFromRow drop-1-args]
+  ? (loop more)
+  ! listCase more [die "impossible"]
+  & [x xs]
+  ! listCase xs appE-{cnsE-eql tmp x}
+  & [y ys]
+  | appE
+  , cnsE-and
+  , appE {cnsE-eql tmp x}
+  , loop xs
+
+??(eql == eql == eql)
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Macro: Not-Equals Operator ;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+#= "/="
+| simpleMacro I,I
+& (x y)
+| appE {cnsE-not [NODE "==" {x y}]}
+
+??(eql /= neq)
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Macro: Global Namespace as Value ;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+= getEnvTab
+& (env nex xs mK)
+| 0,(cnsE env)
+
+#= "|?|" getEnvTab
+
+?? @ env [|?|]
+   | and [eql getEnvTab | tabGet env "|?|"]
+         [eql getEnvTab | tabGet env "getEnvTab"]
+
+;;;;;;;;;;;;;;;;;;;;;
+;; Macro: Open Tab ;;
+;;;;;;;;;;;;;;;;;;;;;
+
+= (readSpecificRuneFolded expect rex k)
+@ err | LEFT cordConcat-{"Expected a '" expect "' node"}
+! rexGetNodeFolded rex err
+& (rune params)
+| if (neq expect rune) err
+! k params
+
+= (readTabPatternBinder rex)
+! readSpecificRuneFolded "=" rex
+& tisParams
+@ badWidth [LEFT "Tab-Binder must have form [= k] or [= k v]"]
+| switch [len tisParams] badWidth
+, badWidth
+, * {keyWord} tisParams
+  ! rexGetWord keyWord [LEFT "Expected a word in Tab-Binder key"]
+  | (k & RIGHT-{k k})
+, * {keyWord valWord} tisParams
+  | rexGetWord keyWord [LEFT "Expected a word in Tab-Binder key"]
+  & k
+  | rexGetWord valWord [LEFT "Expected a word in Tab-Binder value"]
+  & v
+  | RIGHT-{k v}
+
+= (readTabPattern rex)
+! readSpecificRuneFolded "%" rex
+& cenParams
+| if (neq 1 len-cenParams)
+   [LEFT "Tab-Pattern expects % rune with one parameter"]
+! readSpecificRuneFolded "," idx-0-cenParams
+& comParams
+| eitherMap tabFromRow
+| eitherRowSequence
+| map readTabPatternBinder
+| comParams
+
+(fromEither left right val)=[! eitherCase val left right]
+
+#= "*%"
+| gensymMacro , (compose fromEither-I-I readTabPattern)
+              , I
+              , I
+& (nex tabPat tabExp bodyExp)
+| deepseq tabPat
+@ tabIdn (gensymE "tab")
+; trkVal %{=tabPat =tabExp =bodyExp}
+, 1
+, | letE tabIdn tabExp
+  . tabToList-tabPat
+  ? (bindSlots lis)
+  ! listCase lis bodyExp
+  & (kv more)
+  * {key val} kv
+  | letE [WORD val] appE-{cnsE-tabIdx cnsE-key tabIdn}
+  | bindSlots more
+
+?? | eql {%add 9 3}
+   *% %{=k1 k2=foo} %{k1=9 k2=3}
+   | {%add k1 foo}
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Macro: Explicitly embed value ;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+#= "<^>"
+& (env nex xs mK)
+, 0
+, VRAW | idx 1 | idx 0 xs
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Macro: Mutually Recursive Laws ;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+= (readSignature rex)
+@ err
+   """Function Signature must be a symbol `x` or signature `[x y z]`
+! rexCase rex
+         & (rune args cont)
+         | if (neq rune "|") | err
+         | if (neq cont 0)   | "name-sequence cannot have a continuation"
+         @ res | macroTraverse readSymbol args
+         | if isNat-res res
+         | map cdr res
+      & _
+      @ res readSymbol-rex
+      | if isNat-res res
+      | {idx-0-res}
+   (!_ & err)
+   (!_ & err)
+   (!_ & err)
+
+= [readCorePattern sig body]
+@ args [readSignature sig]
+| if isNat-args args
+| args,body
+
+= [readCoreBody rex]
+@ clauses
+   | unrollSlip2Tis (_ & LEFT 'Not a core arm') rex
+| macroTraverse (rowApply readCorePattern) clauses
+
+= (anonLamE args body)
+| HEIR "&" {appE-args} body
+
+= (taggedLamE idn tag args body)
+@ tagIdn [NODE "^" {idn natE-tag}]
+| HEIR "?" {appE-[weld {tagIdn} args]}
+| body
+
+?? | eql ``` [? (a^3 x y)]z
+   | taggedLamE ```a 3 {```x ```y} ```z
+
+= [matchE x f ps]
+| appE {cnsE-match x f vecE-ps}
+
+#= "#"
+| gensymMacro
+   , (compose fromEither-I-SOME readAtomLit)
+   , I
+   , readCoreBody
+& (nex someCoreTag letBody sigExpPairs)
+@ coreTag idx-1-someCoreTag
+@ coreIdn (gensymE nex)
+@ coreArg (gensymE inc-nex)
+@ bindArms
+   ? (bindArms body arms)
+   ! listCase arms body
+   & (item rest)
+   * key,arm item
+   * sig,_ arm
+   @ armArgs (map WORD drop-1-sig)
+   | letE [WORD idx-0-sig]
+       | anonLamE armArgs
+       | appE
+       , coreIdn
+       , vecE-[weld {natE-key} armArgs]
+   | bindArms body rest
+@ arms
+   | listZip listEnumFrom-0 listFromRow-sigExpPairs
+@ branches
+   | turn listToRow-arms
+   & item
+   * _,arm item
+   * sig,body arm
+   | NODE "*"
+   @ binds | map WORD
+           | weld {"_"} drop-1-sig
+   , NODE "," binds
+   , coreArg
+   , body
+@ coreBody [matchE coreArg natE-0 branches]
+, 2
+, | letE coreIdn
+     | taggedLamE coreIdn coreTag {coreArg}
+     | bindArms coreBody arms
+  | bindArms letBody arms
+
+= (looper start)
+# %loop loop!start
+= (loop xx)
+   | ifZero xx 0
+   ! loop 0
+
+* even,odd
+#  %even_odd
+   {4-even 4-odd}
+= (even x)
+   | ifZero x T [! odd dec-x]
+= (odd x)
+   | ifZero x F [! even dec-x]
+
+?? even 0
+?? even 2
+?? even 20
+?? odd 1
+?? odd 3
+?? odd 21
+
+;;;;;;;;;;;;;;;;;;;
+;; Serialization ;;
+;;;;;;;;;;;;;;;;;;;
 
 ;;;
 ;;; TODO: explicitly opening a pin the top
@@ -1908,7 +2562,7 @@ hexAlphabet=[natBar "0123456789abcdef"]
 = (jam external top)
 @ pos | len external
 @ tab | listZip [listFromRow external] [listEnumFrom 0]
-#     %jamCore
+#    %jamCore
    | idx 1
    | go pos tab
    | if isPin-top pinItem-top top
@@ -1927,20 +2581,19 @@ hexAlphabet=[natBar "0123456789abcdef"]
    @ bit | mix 1
          | lsh [bitWeld 0 hBits tBits] 2
    | (siz, bit, t3)
-= (go p t non)
-   + [listLookup non t]
-   = {1 ref}
-     | if | and [isNat non]
-          | lte bitWidth-non bitWidth-ref
-       | nat t non
-     | backref t ref
-   = {0}
-     @ t | CONS {non p} t
-     | if [isPin non] | cel p t mkPin pinItem-non
-     | if [isNat non] | nat t non
-     | if [isApp non] | cel p t car-non cdr-non
-     @ hed | mkLaw lawName-non lawArgs-non
-     | cel p t hed lawBody-non
+= (go p t noun)
+   ! optionCase [listLookup noun t]
+       @ t [! CONS {noun p} t]
+       | if isPin-noun [cel p t mkPin pinItem-noun]
+       | if isNat-noun [nat t noun]
+       | if isApp-noun [cel p t car-noun cdr-noun]
+       @ hed [mkLaw lawName-noun lawArgs-noun]
+       | cel p t hed lawBody-noun
+   & ref
+   | if  | and isNat-noun
+         | lte bitWidth-noun bitWidth-ref
+      | nat t noun
+   | backref t ref
 
 = (jar val)
 @ depz | refs val
@@ -1966,13 +2619,11 @@ hexAlphabet=[natBar "0123456789abcdef"]
 mulHaz=[jarHash mul]
 
 ; TODO Manually validate this once `jar` matches new Haskell algorithm.
-; ! | eql mulHaz
-;   | barWeld BX"3ef4f678b1163ca00829fdea3f5267fc"
-;             BX"b818b304f1f8ce38a9d1860d5bf2273a"
-
-;;;;;;;;;;;;;;;
-;; Val Types ;;
-;;;;;;;;;;;;;;;
+;
+; TODO Implement `barFromHexCord` so I can use `BX`.
+;; ?? | eql mulHaz
+;;    | barWeld BX"3ef4f678b1163ca00829fdea3f5267fc"
+;;              BX"b818b304f1f8ce38a9d1860d5bf2273a"
 
 = (refsTable pin)
 | tabFromRow
@@ -1980,15 +2631,19 @@ mulHaz=[jarHash mul]
 & r , lawName pinItem-r
     , jarHash r
 
+;;;;;;;;;;;;;;;
+;; Val Types ;;
+;;;;;;;;;;;;;;;
+
 = (unApp f args)
 | if isApp-f
    | unApp car-f
-   | CONS cdr-f args
+   ! CONS cdr-f args
 | listToRow
-| CONS f args
+! CONS f args
 
 = inspect-x
-| if isApp-x [unApp car-x | CONS cdr-x NIL]
+| if isApp-x [unApp car-x ! CONS cdr-x NIL]
 | if isLaw-x {mkLaw lawName-x lawArgs-x lawBody-x}
 | if isPin-x {mkPin pinItem-x}
 | x
@@ -2007,311 +2662,6 @@ mulHaz=[jarHash mul]
 | if isNat-spec spec
 | runVec map-rebuild-spec
 
-;;;;;;;;;;;;;;;;;;;;;;;;
-;; Macro: Rex Quoting ;;
-;;;;;;;;;;;;;;;;;;;;;;;;
-
-#= "```"
-& (env nex xs mK)
-@ args (mergeRexCont xs mK)
-| if (neq 1 len-args) "Expected 1 Parameter"
-, 0 cnsE-(idx-0-args)
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; Some Monadic Operations on `Option` ;;
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-;; sequence :: Row [Option a] -> Option [Row a]
-= (optionRowSequence results)
-. NIL listFromRow-results
-? (loop acc rest)
-+ rest
-= {0} SOME-[listToRowReversed acc]
-= {1 mX more}
-+ mX
-= {0} NONE
-= {1 x}
-| loop CONS-x-acc more
-
-(optionTraverse f xs)=[optionRowSequence map-f-xs]
-
-! | eql NONE
-  | optionRowSequence {SOME-3 SOME-4 NONE}
-
-! | eql SOME-{3 4 5}
-  | optionRowSequence {SOME-3 SOME-4 SOME-5}
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; Macro: Monadic Bind on Macro Result ;;
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-#= "#@"
-? (macroGuardedLet env nex xs mK)
-@ args (mergeRexCont xs mK)
-| if (neq 3 len-args) "Expected 3 parameters"
-* {var exp bod} args
-@ guardedBod
-   | appE
-   , cnsE-if
-   , appE {4,isNat var}
-   , var
-   , bod
-| 0,{0 "@" {var exp guardedBod} 0}
-
-!  | eql %foo
-   @ xxx %foo
-   | if isNat-xxx xxx
-   %bar
-
-!  | eql %foo
-   #@ xxx %foo
-   %bar
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; Parsing Nat Literals ;;
-;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-; (Char > Some Nat)
-= (readDigit char)
-| tabSwitch char NONE
-% , ("0" = SOME-0)
-    ("1" = SOME-1)
-    ("2" = SOME-2)
-    ("3" = SOME-3)
-    ("4" = SOME-4)
-    ("5" = SOME-5)
-    ("6" = SOME-6)
-    ("7" = SOME-7)
-    ("8" = SOME-8)
-    ("9" = SOME-9)
-;; TODO Better syntax for tab literals
-
-; (Nat > Maybe Nat)
-= (readNat n)
-+ optionTraverse-readDigit-[explode n]
-= {0} NONE
-= {1 nums}
-@ f
-   & (elem rest)
-   ; trkVal %res
-   ; trk %{=elem =rest}
-   * {pos acc} rest
-   , mul-10-pos
-   , add acc mul-pos-elem
-| ifZero len-nums NONE
-| SOME | idx 1 | foldr f {1 0} nums
-
-! eql SOME-1   readNat-"1"
-! eql SOME-12  readNat-"12"
-! eql SOME-123 readNat-"123"
-! eql NONE     readNat-""
-! eql NONE     readNat-"a"
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; Macro: Atomic Switch ;;
-;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-; (Rex > Rex > (Or Nat {Maybe-Nat Rex}))
-= (readSwitchPattern pat exp)
-+ pat
-= _ "Switch patterns must be digits, _, 'name', or %name"
-= {0 rune xs mK}
-   | if  | or [neq "%" rune]
-         | or [neq 0 mK]
-         | or [neq 1 len-xs]
-      | "Invalid Nat Literal"
-   + idx-0-xs
-   = {1 num}
-   | SOME-num,exp
-= {2 cord}
-   | SOME-cord,exp
-= {1 name}
-   | if (eql name "_") NONE,exp
-   + [readNat name]
-   = {0 err} err
-   = {1 num} SOME-num,exp
-
-; TODO Support non-= continuations
-= (unrollSlip2Tis rex)
-. NIL rex
-? (loop acc form)
-+ form
-= _ "unrollSlip2Tis expected a node"
-= {0 n xs mK}
-| if (neq "=" n)    | "unrollSlip2Tis expected an `=` node"
-| if (neq 2 len-xs) | "unrollSlip2Tis expected two parameters"
-| if (neq 0 mK)     | loop (CONS xs acc) mK
-| listToRowReversed (CONS xs acc)
-
-= (readSwitchPatterns rex)
-@ clauses [unrollSlip2Tis rex]
-; trk %{=clauses}
-| if isNat-clauses clauses
-@ cases [macroTraverse (rowApply readSwitchPattern) clauses]
-; trk %{=cases}
-| if isNat-cases cases
-. {cnsE-0 %{}} cases
-| foldl
-& (acc patExp)
-* pat,exp   patExp
-* _,caseTab acc
-; trk %{=acc =patExp}
-+ pat
-= {0}   | put acc 0 exp
-= {1 k} | put acc 1 [tabPut caseTab k exp]
-
-#= "`"
-| simpleMacro {I readSwitchPatterns}
-& (expr patterns)
-; trkVal %LusPamResult
-* fb,ps patterns
-@ canUseRowIndex
-   | listAnd
-   | listZipWith eql listEnumFrom-0
-   | listFromRow tabKeys-ps
-@ rowImpl | appE {cnsE-switch    expr fb vecE-[tabValues ps]}
-@ tabImpl | appE {cnsE-tabSwitch expr fb tabE-ps}
-| if canUseRowIndex rowImpl tabImpl
-
-= (switchTest x)
-` x
-= 346    B"346"
-= 345    B"345"
-= %hi    B"hi"
-= "yop"  B"yop"
-
-! eql B"346" switchTest-346
-! eql B"345" switchTest-345
-! eql B"hi"  switchTest-(%hi)
-! eql B"yop" switchTest-"yop"
-! eql 0      switchTest-45
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; Printing Rex Expressions ;;
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-= (showRex expr)
-+ expr
-= {0 r x k} @ hed | barConcat
-                  , B"["
-                  , | barIntercalate B" "
-                    | if (eql r '|') map-showRex-x
-                    | weld {natBar-r} map-showRex-x
-                  , B"]"
-            | if (eql k 0) hed
-            | barWeld hed showRex-k
-= {1 nm}    | natBar nm
-= {2 co}    | barConcat {B'"' natBar-co B'"'}
-= {3 pg}    | showRex {2 cordConcat-pg} ; TODO cordIntercalate
-= {4 _}     | "EMBEDED VALUE"
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; Scratch Pad: Pronouncing Numbers ;;
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-= (natWords n)
-` n
-= 0 %Zero
-= _
-   . n
-   ? (loop n)
-   ` n
-   = 0 ""
-   = 1 %One
-   = 2 %Two
-   = 3 %Three
-   = 4 %Four
-   = 5 %Five
-   = 6 %Six
-   = 7 %Seven
-   = 8 %Eight
-   = 9 %Nine
-   = _ | cordConcat
-       , loop [div n 10]
-       , natWords [mod n 10]
-
-! eql %ThreeFourFive natWords-345
-! eql %Zero          natWords-0
-! eql %OneZero       natWords-10
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; Scratch Pad: Testing Rex Printing ;;
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-! eql B'[]'      [showRex ```[]]
-! eql B'3'       [showRex ```3]
-! eql B'"3"'     [showRex ```"3"]
-
-| showRex
-``` = (showRex expr)
-    + expr
-    = {0 r x k} @ hed | barConcat
-                      , B"["
-                      , | barIntercalate B" "
-                        | if (eql r '|') map-showRex-x
-                        | weld {natBar-r} map-showRex-x
-                      , B"]"
-                | if (eql k 0) hed
-                | barWeld hed showRex-k
-    = {1 nm}    | natBar nm
-    = {2 co}    | barConcat {B'"' natBar-co B'"'}
-    = {3 pg}    | showRex {2 cordConcat-pg} ; TODO cordIntercalate
-    = {4 nm co} | barConcat {natBar-nm B'"' natBar-co B'"'}
-    = {5 nm pg} | showRex {4 nm cordConcat-pg} ; TODO cordIntercalate
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; Macro: Equality Operator ;;
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-#= "=="
-& (env nex params maybeCont)
-@ args mergeRexCont-params-maybeCont
-` len-args
-= 0 (0, natE 1)
-= 1 (0, appE (cnsE seq, idx 0 args, natE 1))
-= 2 (0, appE (cnsE eql, idx 0 args, idx 1 args))
-= _ , 1
-    , @ tmp genSym-nex
-      | letE tmp idx-0-args
-      . [listFromRow drop-1-args]
-      ? (loop more)
-      + more
-      = _ [die "impossible"]
-      = {1 x xs}
-      + xs
-      = {0} appE-{cnsE-eql tmp x}
-      = {1 y ys}
-        | appE
-        , cnsE-and
-        , appE {cnsE-eql tmp x}
-        , loop xs
-
-!(eql == eql == eql)
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; Macro: Not-Equals Operator ;;
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-#= "/="
-| simpleMacro I,I
-& (x y)
-| appE {cnsE-not {0 "==" x,y 0}}
-
-!(eql /= neq)
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; Macro: Global Namespace as Value ;;
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-= getEnvTab
-& (env nex xs mK)
-| 0,(cnsE env)
-
-#= "|?|" getEnvTab
-
-! @ env [|?|]
-  | and [eql getEnvTab | tabGet env "|?|"]
-        [eql getEnvTab | tabGet env "getEnvTab"]
 
 ;;;;;;;;;;;;;;;;;
 ;; Scratch Pad ;;
@@ -2322,4 +2672,3 @@ mulHaz=[jarHash mul]
 ;#?(eql /= neq)
 ;
 ;#?[: (x=3)(y=4)(z=5) y]
-

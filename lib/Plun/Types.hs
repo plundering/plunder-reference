@@ -141,7 +141,12 @@ valName :: Val -> Text
 valName (VAL _ (LAW L{..})) =
     let nat = lawNameNat lawName
     in either (const $ tshow nat) id (natUtf8 nat)
-valName _ = "_"
+
+valName (VAL _ (PIN(P{..}))) =
+    valName pinItem
+
+valName _ =
+    "_"
 
 instance Show Nod where
     show (NAT n)   = show n

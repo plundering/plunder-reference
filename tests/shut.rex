@@ -40,7 +40,3 @@
 , (+a+b+c)
 , (~a)+(~b)+(~c)
 , (~a + ~b + ~c)
-
-% """ Ambiguous Infix
-, a+b*c
-, (a-b/nat>nat).c

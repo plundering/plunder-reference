@@ -15,12 +15,8 @@ main = replStdin \case
 
 open :: Rex -> Rex
 open (N _ r cs k) = N OPEN r (open <$> cs) (open <$> k)
-open (T th t k) = T th t (open <$> k)
-open (C c k)    = C (openAmb c) (open <$> k)
-
-openAmb :: RexAmb -> RexAmb
-openAmb (AS r ps) = AS (open r) (over _2 open <$> ps)
-openAmb (AN r ps) = AN (open r) (over _2 open <$> ps)
+open (T th t k)   = T th t (open <$> k)
+open (C c _)      = absurd c
 
 dent :: Text -> Text -> Text
 dent pre =

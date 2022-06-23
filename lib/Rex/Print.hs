@@ -66,10 +66,10 @@ boldColoring = RC
   where
     esc code = "\x001b[" <> code <> "m"
 
-    green t       = esc "32"            <> t <> esc "0"
-    yellow t      = esc "33"            <> t <> esc "0"
-    boldYellow  t = esc "33" <> esc "1" <> t <> esc "0"
-    boldMagenta t = esc "35" <> esc "1" <> t <> esc "0"
+    green t       = esc "32"   <> t <> esc "0"
+    yellow t      = esc "33"   <> t <> esc "0"
+    boldYellow  t = esc "33;1" <> t <> esc "0"
+    boldMagenta t = esc "35;1" <> t <> esc "0"
 
     lightRune "-" = True
     lightRune "`" = True
@@ -105,7 +105,7 @@ wideLeaf = f
 isShut :: Rex -> Bool
 isShut (N SHUT_PREFIX  _ _ _) = True
 isShut (N SHUT_INFIX   _ _ _) = True
-isShut (C (AS _ _) _)         = True
+isShut (C v _)                = absurd v
 isShut _                      = False
 
 rexLine :: Rex -> Text
@@ -127,23 +127,13 @@ rexLine' :: (?color :: RexColoring) => Rex -> TB.Builder
 rexLine' = go
  where
 
-  asGo acc []         = acc
-  asGo acc ((r,x):is) = asGo (acc <> cRune r <> wrapRex x) is
-
-  anGo :: [TB.Builder] -> [(Text, Rex)] -> [TB.Builder]
-  anGo acc []         = reverse acc
-  anGo acc ((r,x):is) = anGo (infixApp x : cRune r : acc) is
-
   go :: Rex -> TB.Builder
   go = \case
     T s t Nothing         -> wideLeaf s t
     T s t (Just k)        -> wideLeaf s t <> go k -- TODO Wrap if necessary.
     N OPEN  r ps k        -> go (N NEST_PREFIX r ps k)
     N s     r ps (Just k) -> wrapRex (N s r ps Nothing) <> go k
-    C (AS h tl) (Just k)  -> wrapRex (C (AS h tl) Nothing) <> go k
-    C (AS h tl) Nothing   -> asGo (wrapRex h) tl
-    C (AN h tl) (Just k)  -> wrapRex (C (AN h tl) Nothing) <> go k
-    C (AN h tl) Nothing   -> parens $ anGo [infixApp h] tl
+    C c _                 -> absurd c
     N s     r ps Nothing  ->
       case s of
         SHUT_PREFIX -> cRune r <> wrapRex (unsafeHead ps)

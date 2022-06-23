@@ -15,6 +15,7 @@ import Optics               as X (_1, _2, assign, assign', at, modifying,
                                   modifying', over, to, use, view, (%), (^.))
 import Optics.TH            as X
 import System.IO.Unsafe     as X (unsafePerformIO)
+import Data.Void            as X (Void, absurd)
 
 writeTQueue' :: TQueue a -> a -> STM ()
 writeTQueue' a b = writeTQueue a $! b

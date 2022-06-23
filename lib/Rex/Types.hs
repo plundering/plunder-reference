@@ -6,7 +6,6 @@ module Rex.Types
     , TextShape(..)
     , GRex(..)
     , Leaf
-    , RexAmb(..)
     , Rex
     )
 where
@@ -37,10 +36,4 @@ data GRex v
     | C v (Maybe (GRex v))
   deriving (Eq, Ord, Show, Generic, NFData, Functor, Foldable, Traversable)
 
--- TODO Use (NonEmpty (Text, Rex)) instead of [(Text,Rex)].
-data RexAmb
-    = AS Rex [(Text, Rex)]
-    | AN Rex [(Text, Rex)]
-  deriving (Eq, Ord, Show, Generic, NFData)
-
-type Rex = GRex RexAmb
+type Rex = GRex Void

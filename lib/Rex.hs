@@ -7,7 +7,6 @@ module Rex
     , TextShape(..)
     , Leaf
     , GRex(..)
-    , RexAmb(..)
     , Rex
     , rexFile
     , rexFileColor

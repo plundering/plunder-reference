@@ -4,50 +4,50 @@
 ++ SOME a
 
 > b
-  > a>b
-    > Opt a
-      > b
+   > a>b
+      > Opt a
+         > b
 = opt
 ? _ s SOME|x
-  | s x
+   | s x
 ? n _ NONE
-  | n
+   | n
 
 > b
-  > a>b
-    > Opt a
-      > b
+   > a>b
+      > Opt a
+         > b
 = opt
 ? _ s SOME|x
-  | s x
+   | s x
 ? n _ NONE
-  | n
+   | n
 
 > a
-  > Opt a
-    > a
+   > Opt a
+      > a
 = from-opt
 ? n NONE
-  | n
+   | n
 ? _ SOME|s
-  | x
+   | x
 
 > Opt Nat
-  > Opt Nat
-    > Opt Nat
+   > Opt Nat
+      > Opt Nat
 = opt
 ? SOME|x SOME|y
-  | SOME
-    | add x y
+   | SOME
+      | add x y
 ? NONE SOME|y
-  | SOME y
+   | SOME y
 ? SOME|x NONE
-  | SOME x
+   | SOME x
 ? NONE NONE
-  | NONE
+   | NONE
 
 > a>b>c
-  > a*b
-    > c
+   > a*b
+      > c
 = [curry f x,y]
 | f x y

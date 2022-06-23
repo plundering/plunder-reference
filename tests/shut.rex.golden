@@ -1,5 +1,5 @@
 %
-  """ Shut Prefix/Infix
+   """ Shut Prefix/Infix
 , %a
 , a+b
 , %(a+b)
@@ -15,7 +15,7 @@
 , :(red-rover)
 
 %
-  """ Shut Wrapped
+   """ Shut Wrapped
 , %a
 , a
 , %a
@@ -31,21 +31,16 @@
 , (:red)&3&4
 
 %
-  """ Shut Overload
+   """ Shut Overload
 , +(+(+a))
 , +(+(+a))
 , a+(b*b)+(c*c)+d
 , ^(a+(-(b*b))+(-(c*c))+d)
 
 %
-  """ Shut Pre / Shut Post
+   """ Shut Pre / Shut Post
 , +a
 , +a
 , +(a+b+c)
 , (~a)+(~b)+(~c)
 , (~a + ~b + ~c)
-
-%
-  """ Ambiguous Infix
-, a+b*c
-, (a-b/nat>nat).c

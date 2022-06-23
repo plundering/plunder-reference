@@ -127,11 +127,8 @@ data XExp z
   | XECOW Nat
   | XECAB (Set Nat)
   | XETAB (Map Nat (XExp z))
-  | XEBAT (Map Nat Text) (XExp z) (XExp z)
-  | XECOR Text (XExp z) [XFun z]
   | XELAM (XFun z)
-  | XELIN (XFun z)
-  | XEPAT (XExp z) (XExp z) (Map Nat ([Text], XExp z))
+  | XELIN (NonEmpty (XExp z))
  deriving (Eq, Ord, Show, Generic, NFData, Functor, Foldable, Traversable)
 
 --- ?-  xs
@@ -213,12 +210,8 @@ data Exp z v a
   | ECOW Nat
   | ETAB (Map Nat (Exp z v a))
   | ECAB (Set Nat)
-  | EOPN [v] (Exp z v a) (Exp z v a)
-  | EBAT (Map Nat v) (Exp z v a) (Exp z v a)
-  | ECOR Text (Exp z v a) [(v, Fun z v a)]
   | ELAM (Fun z v a)
-  | ELIN (Fun z v a)
-  | EPAT (Exp z v a) (Exp z v a) (Map Nat ([Text], Exp z v a))
+  | ELIN (NonEmpty (Exp z v a))
  deriving (Eq, Ord, Show, Functor, Foldable, Traversable, Generic, NFData)
 
 -------------------
@@ -245,10 +238,11 @@ data XCmd z
   | XVOPEN [Text] (XExp z)
   | XDUMPY (XExp z)
   | XCHECK [XExp z]
+
   | XMKRUL XLaw
+
   | XALIAS [(Text, XVal)]
   | XDEFUN [XFun z]
-  | XANOTE [GRex z] (Maybe (GRex z))
   | XSAVEV (XExp z)
   | XIOEFF Text Text (XExp z)
   | XMACRO Text (XExp z)

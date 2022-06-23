@@ -3,6 +3,43 @@
 
 {-
 
+Inlining
+========
+
+TODO: Implement inlining
+
+-   Given a function to inline: (Fun Pln Refr Pln)
+-   Given an array of arguments: (Vector (Exp Pln Refr Pln))
+-   Presuming that the number of arguments matches the function arity.
+-   Return (Exp Pln Refr Pln)
+-   Each function argument becomes a let bindings.
+-   Function body simply becomes let-binding body.
+
+TODO: Implement inline application rune.
+
+-   Something like [! f x y]
+-   Validate that `f` is an inlinable quantity.
+-   Validate arity.
+-   Perform inlining.
+
+TODO: Implement inline binders.
+
+-   Something like [! f x]=(x x)
+-   Same behavior as [f x]=(x x)
+-   (Fun Pln Refr Pln) added to "inline table".
+-   Compiler recognizes application to inline binder, and replaces with
+    inline-application of normal lambda.
+
+TODO: Implement inline lambdas
+
+-   Something like ((f x &! (x x)) 9)
+-   Compiler recognizes application to inline lambda, and replaces with
+    inline-application of normal lambda.
+
+
+-}
+
+{-
 -   TODO Make parser match printer and test:
 
     -   TODO Test reparsing the output of running all of our Sire code.
@@ -364,42 +401,21 @@ expRexWid = \case
     XECOW n              -> nameRex ("R" <> tshow n)
     XETAB ps             -> N NEST_PREFIX "," (goPair <$> M.toAscList ps) NONE
     XECAB k              -> valRexWid (XVCAB k)
-    XECOR _ b []         -> go b
-    XECOR n b (f:fs)     -> N NEST_PREFIX "#"  [nameRex n, go b, goCore f fs] NONE
-    XEBAT v x b          -> N NEST_PREFIX "**" [ go $ XETAB $ XEREF<$>v
-                                               , go x
-                                               , go b
-                                               ] NONE
     XELAM (XFUN tg r b)  -> case tg of
                                 XTAG "" NONE NONE ->
                                     nInf "&" [ goArgs r, go b ]
                                 _ ->
                                     nInf "?"  [ sigRex tg r, go b ]
 
-    XELIN (XFUN tg r b)  -> case tg of
-                                XTAG "" NONE NONE ->
-                                    nInf "!" [ goArgs r, go b ]
-                                _ ->
-                                    error "impossible: recursive inline lambda"
-    XEPAT x f p          -> nPreC "?+" [go x,go f] (goPats $ mapToList p)
+    XELIN as -> nInf "!" (go <$> toList as)
   where
     nInf r c    = N NEST_INFIX  r c NONE
     nPre r c    = N NEST_PREFIX r c NONE
-    nPreC r c k = N NEST_PREFIX r c k
 
     go = expRexWid
 
-    goPats []              = Nothing
-    goPats ((n,(rs,x)):ps) = Just $ N NEST_PREFIX "++"
-                                      [ nPre "," (natRex n : fmap nameRex rs)
-                                      , go x
-                                      ] (goPats ps)
-
     goArgs [s] = nameRex s
     goArgs ss  = nPre "|" (nameRex <$> ss)
-
-    goCore (XFUN n r b) []     = N NEST_INFIX "++" [sigRex n r, go b] NONE
-    goCore (XFUN n r b) (x:xs) = N NEST_INFIX "++" [sigRex n r, go b] (Just $ goCore x xs)
 
     goPair (k,v) = N SHUT_INFIX "=" [natRex k, go v] NONE
 
@@ -446,38 +462,21 @@ expRex = \case
     XECOW n              -> nameRex ("R" <> tshow n)
     XETAB ps             -> N OPEN "," (goPair <$> M.toAscList ps) Nothing
     XECAB k              -> valRex (XVCAB k)
-    XECOR _ b []         -> go b
-    XECOR n b (f:fs)     -> N OPEN "#"  [nameRex n, go b] (Just $ goCore f fs)
-    XEBAT v x b          -> N OPEN "**" [ go $ XETAB $ XEREF<$>v
-                                        , go x
-                                        ] (Just $ go b)
-    XEPAT x f ps         -> N OPEN "?+" [go x, go f] (goPats $ mapToList ps)
 
     XELAM (XFUN tg r b)  ->
         case tg of
             XTAG "" NONE NONE -> nOpnC "&" [ goArgs r ]   (go b)
             _                 -> nOpnC "?" [ sigRex tg r] (go b)
 
-    XELIN (XFUN tg r b)  ->
-        case tg of
-            XTAG "" NONE NONE -> nOpnC "!" [ goArgs r ]   (go b)
-            _                 -> error "impossible: recursive inline lambda"
+    XELIN as -> nOpn "!" (go <$> toList as)
 
   where
+    nOpn  r c   = N OPEN r c NONE
     nOpnC r c k = N OPEN r c (Just k)
     nPre  r c   = N NEST_PREFIX r c NONE
 
-    goPats []              = Nothing
-    goPats ((n,(rs,x)):ps) = Just $ N OPEN "++"
-                                      [ nPre "," (natRex n : fmap nameRex rs)
-                                      , go x
-                                      ] (goPats ps)
-
     goArgs [s] = nameRex s
     goArgs ss  = nPre "|" (nameRex <$> ss)
-
-    goCore (XFUN n r b) []     = N NEST_INFIX "++" [sigRex n r, go b] NONE
-    goCore (XFUN n r b) (x:xs) = N NEST_INFIX "++" [sigRex n r, go b] (Just $ goCore x xs)
 
     go = expRex
 
@@ -572,11 +571,10 @@ xtagRex = \case
 
 rexCmd :: ∀m. MacroEnv m Pln -> Rex -> Either Text (XCmd Pln)
 rexCmd env rex =
-    preProcess rex >>= load
+    load (preProcess rex)
  where
-  preProcess :: Rex -> Either Text (GRex v)
-  preProcess = fmap rewriteLeafJuxtaposition
-             . applyInfixPrec
+  preProcess :: Rex -> GRex v
+  preProcess = rewriteLeafJuxtaposition . fmap absurd
 
   load :: GRex Pln -> Either Text (XCmd Pln)
   load = resultEitherText dropEmbed rex
@@ -604,53 +602,6 @@ runReading env (READT act) inp
         flip runReaderT env
             $ runResultT
             $ act inp
-
-runePrec :: Text -> Int
-runePrec "-"  = 9
-runePrec ":=" = 8
-runePrec "="  = 8
-runePrec _    = 1
-
-applyInfixPrec :: Rex -> Either Text (GRex a)
-applyInfixPrec = go
-  where
-    go :: ∀a. Rex -> Either Text (GRex a)
-    go = \case
-        N m r c k         -> N m r <$> traverse go c <*> traverse go k
-        T s t k           -> T s t <$> traverse go k
-        C(AS x []) mK     -> go (N SHUT_INFIX "|" [x] mK)
-        C(AN x []) mK     -> go (N NEST_INFIX "|" [x] mK)
-        C(AS x (r:rs)) mK -> do (run, cs) <- disamb x (r :| rs)
-                                k <- traverse go mK
-                                go (N SHUT_INFIX run cs k)
-        C(AN x (r:rs)) mK -> do (run, cs) <- disamb x (r :| rs)
-                                k <- traverse go mK
-                                go (N NEST_INFIX run cs k)
-
-    mak h [] = h
-    mak h t  = C (AS h $ reverse t) Nothing
-
-    splitIt :: Text -> (Rex, [(Text, Rex)]) -> [(Text, Rex)] -> [Rex]
-    splitIt _ (h,t) []                   = mak h t : []
-    splitIt r (h,t) ((r2,i2):rs) | r==r2 = mak h t : splitIt r (i2,[]) rs
-    splitIt r (h,t) ((r2,i2):rs)         = splitIt r (h,(r2,i2):t) rs
-
-    disamb :: Rex -> NonEmpty (Text, Rex) -> Either Text (Text, [Rex])
-    disamb x ((r,i) :| mor) = do run <- lowestPrec r (fst <$> mor)
-                                 pure $ (run,) $ splitIt run (x,[]) ((r,i):mor)
-
-lowestPrec :: Text -> [Text] -> Either Text Text
-lowestPrec o os = go (runePrec o, o) os
- where
-  go :: (Int, Text) -> [Text] -> Either Text Text
-  go (_, r) []              = Right r
-  go (p, r) (r2:rs) | r==r2 = go (p,r) rs
-  go (p, r) (r2:rs)         =
-      let p2 = (runePrec r2) in
-      case compare p p2 of
-          EQ -> Left ( "Two runes have same precidence: " <> tshow (r,r2))
-          LT -> go (p,r) rs
-          GT -> go (p2,r2) rs
 
 stripComments :: GRex v -> GRex v
 stripComments = \case
@@ -685,8 +636,8 @@ type Red m v = ReadT v (ReaderT (MacroEnv m v) IO)
 
 readCmd :: ∀m. Red m Pln (XCmd Pln)
 readCmd = asum
-  [ do rune "!"
-       checks <- slip1N "!" readExpr readExpr
+  [ do rune "??"
+       checks <- slip1N "??" readExpr readExpr
        pure $ XCHECK (checks <&> \(v,vs) -> foldl' XEAPP v vs)
   , do rForm2c "#=" readCord readExpr XMACRO
   , do rForm1c "#?" readExpr XPLODE
@@ -716,14 +667,14 @@ readCmd = asum
 readArgs :: Red m v (Text, [Text])
 readArgs = asum
     [ readSymb <&> \i -> (i, [])
-    , do rune "|" <|> rune "-"
+    , do rune "|" <|> rune "-" <|> rune "!" -- TODO Indicate inline-ness
          form1N readSymb readSymb
     ]
 
 readSigy :: Red m v (XTag, [Text])
 readSigy = asum
     [ readSymb <&> \i -> (idnXTag i, [])
-    , do rune "|" <|> rune "-"
+    , do rune "|" <|> rune "-" <|> rune "!" -- TODO Indicate inline-ness
          form1N readXTag readSymb
     ]
 
@@ -804,11 +755,6 @@ readSymb = matchLeaf "symbol" \case
     (BARE_WORD,n) | okIdn n -> Just n
     _                       -> Nothing
 
-readSymbEq :: Text -> Red m v ()
-readSymbEq eq = matchLeaf eq \case
-    (BARE_WORD,n) | n==eq -> Just ()
-    _                     -> Nothing
-
 readHash :: Red m v Word256
 readHash =
     matchLeaf "hash" \(s,n) -> do
@@ -866,9 +812,6 @@ readNamz = asum
     , rune "," >> formN readSymb
     ]
 
-readCnNm :: Red m v Text
-readCnNm = rune "%" >> form1 readName
-
 type MacroExpander v
     = v
     -> Nat
@@ -876,6 +819,7 @@ type MacroExpander v
     -> Maybe (GRex v)
     -> IO (Either Text (Nat, (GRex v)))
 
+-- TODO Better to just use a parameter instead of IO monad?
 runMacro :: MacroExpander Pln -> Red m Pln (XExp Pln)
 runMacro macro = do
     (xs, mK) <- readNode
@@ -909,18 +853,20 @@ readExpr = do
         , readCow <&> \case 0 -> XEVEC mempty
                             n -> XECOW n
         , XEREF <$> readSymb
-        , rFormN1c "."  readExpr readExpr          appTo
-        , rForm3c  "~"  readSymb readExpr readExpr XEREC
-        , rForm3c  "**" readTSig readExpr readExpr XEBAT
-        , rForm2c  "?"  readSigy readExpr          nameLam
-        , rForm2c  "&"  readArgs readExpr          anonLam
-        , rForm2c  "!"  readArgs readExpr          anonLin
-        , rFormN1c "^"  readExpr readBind          mkWhere
-        , rForm3c  "#"  readCnNm readExpr readCore XECOR
-        , rForm2c  "+"  readExpr readPats          mkPat
-        , rForm1Nc "|"  readExpr readExpr          apple
-        , rForm1Nc "-"  readExpr readExpr          apple
-        , rForm3c  "@"  readSymb readExpr readExpr XELET
+        , rFormN1c "."   readExpr readExpr          appTo
+        , rForm3c  "~"   readSymb readExpr readExpr XEREC
+        , rForm2c  "?"   readSigy readExpr          nameLam
+        , rForm2c  "&"   readArgs readExpr          anonLam
+     -- , rForm2c  "&!"  readArgs readExpr          anonLin
+     -- , rForm2c  "&!!" readArgs readExpr          anonStatic
+
+        -- TODO Make this a macro
+        , rFormN1c "^"   readExpr readBind          mkWhere
+
+        , rForm1Nc "|"   readExpr readExpr          apple
+        , rForm1Nc "-"   readExpr readExpr          apple
+        , rForm3c  "@"   readSymb readExpr readExpr XELET
+        , rForm1Nc  "!"  readExpr readExpr          mkInline
         , do rune ","
              asum [ XEVEC <$> formN readExpr
                   , do sequ <- slip1N "," readExpr readExpr
@@ -928,19 +874,12 @@ readExpr = do
                   ]
         ]
 
-    dropFallback :: Ord k => Map (Maybe k) v -> Map k v
-    dropFallback = mapFromList . mapMaybe f . mapToList
-      where f (Nothing, _) = Nothing
-            f (Just k, v)  = Just (k, v)
-
-    mkPat :: XExp v -> Map (Maybe Nat) ([Text], XExp v) -> XExp v
-    mkPat x p = XEPAT x fb (dropFallback p)
-      where fb = fromMaybe (XENAT 0) (snd <$> lookup Nothing p)
-
     apple f []    = f
     apple f (b:c) = apple (XEAPP f b) c
 
     appTo xs f = apple f xs
+
+    mkInline f xs = XELIN (f :| xs)
 
     mkWhere :: [XExp v] -> [(Text, XExp v)] -> XExp v
     mkWhere []     []         = XENAT 0 -- TODO: Implement and use `form1N1c`
@@ -949,46 +888,18 @@ readExpr = do
 
     anonLam (r,rs) x = XELAM (XFUN (idnXTag "") (r:rs) x)
     nameLam (t,rs) x = XELAM (XFUN t            rs     x)
-    anonLin (r,rs) x = XELIN (XFUN (idnXTag "") (r:rs) x)
-
-    readPats :: Red m Pln (Map (Maybe Nat) ([Text], XExp Pln))
-    readPats = do
-        rune "="
-        let readPatr = fmap (,[]) readNatCab
-                    <|> rForm1N "," (Just<$>readNat) readSymb (,)
-        ps <- slip2 "=" readPatr readExpr
-        pure $ mapFromList (ps <&> \((n,rs),x) -> (n,(rs,x)))
-
-    readNatCab :: Red m Pln (Maybe Nat)
-    readNatCab = fmap Just readNat <|> (readSymbEq "_" $> Nothing)
-
-    readTSig :: Red m Pln (Map Nat Text)
-    readTSig =
-        fmap mapFromList
-        $ asum
-        [ rune "," >> formN sigElem
-        , singleton <$> sigElem
-        ]
-      where
-        sigElem = do
-             rune "="
-             asum
-                 [ form1 readKey <&> \k -> (k, natUtf8Exn k)
-                 , form2 readKey readSymb
-                 ]
+    -- anonLin (r,rs) x = XELIN (XFUN (idnXTag "") (r:rs) x)
 
     readBind = rune "=" >> slip2 "=" readSymb readExpr
-
-    readCore = do
-        rune "="
-        res <- slip2 "=" readSigy readExpr
-        pure (res <&> \((t,rs),b) -> XFUN t rs b)
 
 rForm1c :: Text -> Red m v a -> (a -> b) -> Red m v b
 rForm1c r x k = rune r >> form1c x >>= \a -> pure (k a)
 
 rFormN1c :: Text -> Red m v a -> Red m v b -> ([a] -> b -> c) -> Red m v c
 rFormN1c r x y k = rune r >> formN1c x y >>= \(a,b) -> pure (k a b)
+
+_rFormN :: Text -> Red m v a -> ([a] -> b) -> Red m v b
+_rFormN r x k = rune r >> formN x >>= pure . k
 
 rForm3c :: Text -> Red m v a -> Red m v b -> Red m v c -> (a -> b -> c -> d)
         -> Red m v d
@@ -1000,11 +911,11 @@ rForm2 r x y k = rune r >> form2 x y >>= \(a,b) -> pure (k a b)
 rForm2c :: Text -> Red m v a -> Red m v b -> (a -> b -> c) -> Red m v c
 rForm2c r x y k = rune r >> form2c x y >>= \(a,b) -> pure (k a b)
 
+_rForm1N :: Text -> Red m v a -> Red m v b -> (a -> [b] -> c) -> Red m v c
+_rForm1N r x y k = rune r >> form1N x y >>= \(a,bs) -> pure (k a bs)
+
 rForm1Nc :: Text -> Red m v a -> Red m v b -> (a -> [b] -> c) -> Red m v c
 rForm1Nc r x y k = rune r >> form1Nc x y >>= \(a,bs) -> pure (k a bs)
-
-rForm1N :: Text -> Red m v a -> Red m v b -> (a -> [b] -> c) -> Red m v c
-rForm1N r x y k = rune r >> form1N  x y >>= \(a,bs) -> pure (k a bs)
 
 idnXTag :: Text -> XTag
 idnXTag n = XTAG n NONE NONE
@@ -1123,6 +1034,24 @@ loadRex putVal =
     loadCont (NAT 0) = pure Nothing
     loadCont mkv     = Just <$> recur mkv
 
+{-
+
+    Representation could be:
+
+    %asdf ;; bare_word
+
+    {rune}
+    {rune kids}
+    {rune kids cont}
+
+    {1 text}
+    {1 text style}
+    {1 text style cont}
+
+    {2 embed}
+    {2 embed cont}
+-}
+
 rexVal :: GRex Pln -> Val Pln
 rexVal = \case
     -- TODO Change this to match new representation:
@@ -1130,15 +1059,17 @@ rexVal = \case
     -- {1 m t k}
     -- {2 v k}
 
-    N  _ rn xs mK     -> rowV [ NAT 0
-                              , cordV rn
-                              , rowV (rexVal <$> xs)
-                              , maybe (NAT 0) rexVal mK
-                              ]
-    T BARE_WORD n k   -> rowV [ NAT 1, cordV n, maybe (NAT 0) rexVal k ]
-    T THIN_CORD c k   -> rowV [ NAT 2, cordV c, maybe (NAT 0) rexVal k ]
-    T THIN_LINE p k   -> rowV [ NAT 3, cordV p, maybe (NAT 0) rexVal k ]
-    C bed k           -> rowV [ NAT 4, REF bed, maybe (NAT 0) rexVal k ]
+    N _ rn xs Nothing      -> rowV[NAT 0, cordV rn, rowV(rexVal<$>xs)]
+    T BARE_WORD n Nothing  -> rowV[NAT 1, cordV n]
+    T THIN_CORD c Nothing  -> rowV[NAT 2, cordV c]
+    T THIN_LINE p Nothing  -> rowV[NAT 3, cordV p]
+    C bed Nothing          -> rowV[NAT 4, REF bed]
+
+    N _ rn xs (Just k)     -> rowV[NAT 0, cordV rn, rowV(rexVal<$>xs), rexVal k]
+    T BARE_WORD n (Just k) -> rowV[NAT 1, cordV n, rexVal k]
+    T THIN_CORD c (Just k) -> rowV[NAT 2, cordV c, rexVal k]
+    T THIN_LINE p (Just k) -> rowV[NAT 3, cordV p, rexVal k]
+    C bed (Just k)         -> rowV[NAT 4, REF bed, rexVal k]
 
     T THIC_CORD c k   -> rexVal (T THIN_CORD c k) -- TODO
     T THIC_LINE p k   -> rexVal (T THIN_LINE p k)

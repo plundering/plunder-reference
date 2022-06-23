@@ -1,7 +1,7 @@
 = [addEf free fx ef]
-+ free
-= 0      (len fx, NIL, snoc fx ef )
-= 1,f,fs (f,      fs,  put fx f ef)
+| listCase free (len fx, NIL, snoc fx ef )
+& (f!fs)
+| (f, fs, put fx f ef)
 
 = [delEf free fx idx]
 | if [eql len-fx inc-idx]
@@ -11,10 +11,10 @@
 
 [secs n]=[lsh n 32]
 
-! | eql {3 NIL 5,4,3,2}
-  | addEf NIL 5,4,3 2
-! | eql (1, CONS 2 NIL, {5 9 0})
-  | addEf [CONS 1][CONS 2 NIL] 5,0,0 9
+?? | eql {3 NIL 5,4,3,2}
+   | addEf NIL 5,4,3 2
+?? | eql (1, CONS 2 NIL, {5 9 0})
+   | addEf [CONS 1][CONS 2 NIL] 5,0,0 9
 
 ; (Addr > (Addr > Key > Ship))
 = [pong pater pub key]
@@ -70,12 +70,12 @@ pongKey=[get pongResp 1]
 {i r}<-{{%send sireKey pongPub %hi}}
 {i r}<-{{%recv sireKey pongPub}}
 hi=[get r 1]
-![eql %hi hi]
+??[eql %hi hi]
 
 {i r}<-{{%send sireKey pongPub %bye}}
 {i r}<-{{%recv sireKey pongPub}}
 bye=[get r 1]
-![eql %bye bye]
+??[eql %bye bye]
 
 {i r}<-{{%when}}
 r=(add r 2_000_000_000)

@@ -3,44 +3,40 @@
 ~~ r'What''s up?' r"She said: ""yooooo"""
 ~~
 ~~
-  """ Line
+   """ Line
 ~~ $"f"
+~~ $
+      """ Name+Line
 ~~
-  $
-    """ Name+Line
+   ''' Multiple
+   ''' Lines
+~~ $
+      """ Name+
+      """ Multiple
+      """ Lines
 ~~
-  ''' Multiple
-  ''' Lines
-~~
-  $
-    """ Name+
-    """ Multiple
-    """ Lines
-~~
-  """ Okay """
-  """ Frey """
-~~
-  |
-    """
-~~
-  | concat
-      """ foo
-    """ bar
-  | concat
+   """ Okay """
+   """ Frey """
+~~ |
+      """
+~~ | concat
+         """ foo
+      """ bar
+   | concat
+         $
+            """ foo
       $
-        """ foo
-    $
-      """ bar
-  | concat
+         """ bar
+   | concat
+         $
+            """ foo
       $
-        """ foo
-    $
-      """ bar
-      """ bar
-  | concat
+         """ bar
+         """ bar
+   | concat
+         $
+            """ foo
+            """ foo
       $
-        """ foo
-        """ foo
-    $
-      """ bar
-      """ bar
+         """ bar
+         """ bar

@@ -21,7 +21,7 @@
     !=  scrut
         >> m-line
         ? NONE    | NONE
-        ? SOME|ln | SOME | fmap line-type | lex-line (fil,line-num) ln
+        ? SOME|ln | SOME | fmap line-type | lex-line (fil, line num) ln
     !!  >> scrut
         ? NONE
             !! pure {}

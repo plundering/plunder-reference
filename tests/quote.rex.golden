@@ -6,11 +6,11 @@
 = strings
 - 'foo'
 -
-  """ foo
+   """ foo
 - 'doesn''t even'
 - "he said ""whoa"", then made the leap"
 -
-  """ doesn't even
+   """ doesn't even
 -
-  """ foo
-  """ bar
+   """ foo
+   """ bar

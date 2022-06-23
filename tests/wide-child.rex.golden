@@ -1,6 +1,5 @@
->>
-  | f a
-      | g b
-      c
-    d
-  e
+>> | f a
+         | g b
+         c
+      d
+   e

@@ -1,4 +1,5 @@
-{-# OPTIONS_GHC -Wall -Werror #-}
+{-# OPTIONS_GHC -Wall   #-}
+{-# OPTIONS_GHC -Werror #-}
 
 module Rex.Lexer
     ( lexLine
@@ -14,9 +15,13 @@ module Rex.Lexer
 where
 
 import PlunderPrelude        hiding (many, some, try)
-import Data.Void
 import Text.Megaparsec
 import Text.Megaparsec.Char
+
+import Control.Monad.Fail (fail)
+import Data.List          (nub)
+
+--------------------------------------------------------------------------------
 
 type Parser = Parsec Void Text
 
@@ -25,7 +30,10 @@ data Frag = RUNE Text
           | PAGE Bool Text
   deriving (Eq, Ord, Show)
 
-data Form = BEFO Text Form | SHIN Itmz [(Text, Itmz)]
+data Form
+    = BEFO Text Form
+    | SHIN Text [Itmz]
+    | SHIP Itmz
   deriving (Eq, Ord, Show)
 
 data Item = LEAF Leaf | NEST Nest
@@ -34,9 +42,10 @@ data Item = LEAF Leaf | NEST Nest
 type Itmz = NonEmpty Item
 
 data Nest
-    = INFIX [Form] [(Text, [Form])]
+    = INFIX Text [[Form]]
     | PREFX Text [Form]
     | WRAPD Form
+    | PAREN [Form]
   deriving (Eq, Ord, Show)
 
 data Leaf
@@ -77,9 +86,15 @@ cord = ((True,)  <$> cord' '"')
 
 para :: Parser Nest
 para = do
-    (pal >> spc0 >> faro) <&> \case
-        [Right f] -> WRAPD f
-        is        -> unravel [] is
+    (pal >> spc0 >> faro) >>= \case
+        [Right f] -> pure (WRAPD f)
+        is        ->
+          case unravel [] is of
+              ([f], [])             -> pure (WRAPD f)
+              (fs,  [])             -> pure (PAREN fs)
+              (fs,  (run,gs):more) -> do
+                  assertUnambiguous "Nest" (run :| fmap fst more)
+                  pure $ INFIX run (fs : gs : fmap snd more)
   where
     (pal, par) = ( char '(' , char ')' )
     mixy = do { r <- try (rune <* whyt) ; (Left r :) <$> faro }
@@ -95,10 +110,10 @@ para = do
         Left s  : is -> (r, reverse ws) : ravel s [] is
         Right w : is -> ravel r (w:ws) is
 
-    unravel :: [Form] -> [Either Text Form] -> Nest
+    unravel :: [Form] -> [Either Text Form] -> ([Form], [(Text, [Form])])
     unravel ws = \case
-        []           -> INFIX (reverse ws) []
-        Left  r : is -> INFIX (reverse ws) (ravel r [] is)
+        []           -> (reverse ws, [])
+        Left  r : is -> (reverse ws, ravel r [] is)
         Right w : is -> unravel (w:ws) is
 
 rune :: Parser Text
@@ -114,7 +129,7 @@ leaf :: Parser Leaf
 leaf = (uncurry C <$> cord) <|> (N <$> name)
 
 nestForm :: Nest -> Form
-nestForm n = SHIN (NEST n :| []) []
+nestForm n = SHIP (NEST n :| [])
 
 brak :: Parser Nest
 brak = ravel <$> (char '[' >> spc0 >> (empt <|> brok))
@@ -153,8 +168,31 @@ itmz = (:|) <$> item <*> many item
 item :: Parser Item
 item = (NEST <$> nest) <|> (LEAF <$> leaf)
 
+assertUnambiguous :: Text -> (NonEmpty Text) -> Parser ()
+assertUnambiguous whichForm (r :| rs) = do
+    let conflicts = filter (/= r) rs
+    let notAllow = ".\nThis implementation doesn't allow ambiguous infix forms"
+    case conflicts of
+        _:_ ->
+            fail
+                $ unpack
+                $ (<> notAllow)
+                $ ((whichForm <> "-form mixes runes: ") <> )
+                $ (intercalate ", ")
+                $ map (\x -> "'" <> x <> "'")
+                $ nub (r:conflicts)
+        [] ->
+            pure ()
+
 shin :: Parser Form
-shin = SHIN <$> itmz <*> many (try (ppair rune itmz))
+shin = do
+    i  <- itmz
+    is <- many (try (ppair rune itmz))
+    case is of
+        []       -> pure (SHIP i)
+        (r,j):ps -> do
+            assertUnambiguous "Shut" (r :| fmap fst ps)
+            pure (SHIN r (i : j : fmap snd ps))
   where
     ppair x y = (,) <$> x <*> y
 

@@ -9,10 +9,6 @@
 = 'Grouped Infix'
 , (nat*nat > nat > nat)
 
-= 'Ambiguous Infix'
-, (3 , 4 * 5)
-, (3 * 4 , 5)
-
 = 'Flexible spacing for parens'
 , (3, 4, 5)
 , ( 3, 4, 5)

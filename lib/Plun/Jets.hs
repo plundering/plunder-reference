@@ -3,12 +3,6 @@ module Plun.Jets
     , jetMatch
     , getRow
     , getByte
-    , idxHash
-    , matchHash
-    , switchHash
-    , tabMatchHash
-    , tabSwitchHash
-    , tabIdxHash
     )
 where
 
@@ -66,15 +60,6 @@ instance Show UserError where
     o <- s e
     pure $ "DIE called with:\n\n" <> (unpack $ dent "   " o)
 
-idxHash, matchHash, switchHash, tabMatchHash, tabSwitchHash, tabIdxHash
-    :: ByteString
-Just idxHash       = fst <$> lookup "idx"       jetsByName
-Just matchHash     = fst <$> lookup "match"     jetsByName
-Just switchHash    = fst <$> lookup "switch"    jetsByName
-Just tabMatchHash  = fst <$> lookup "tabMatch"  jetsByName
-Just tabSwitchHash = fst <$> lookup "tabSwitch" jetsByName
-Just tabIdxHash    = fst <$> lookup "tabIdx"    jetsByName
-
 table :: [(Text, (Val -> [Val] -> Val), ByteString)]
 table =
   [("add"      ,addJet      ,xx "DmQSboknWfMEi5VSrqzM5AkXNcmEJAagtGum48t9D5yY")
@@ -85,7 +70,7 @@ table =
   ,("mod"      ,modJet      ,xx "DZ9wrRW6rtcZsGPeVHBcdh9ohAz1NYuzVCApXVcExH5K")
   ,("div"      ,divJet      ,xx "HUUEAxqgVoFNd2zVFRPhFuaJYese1S5JaQU7JF7BTDDy")
   ,("eql"      ,eqlJet      ,xx "ChSVfUm3xqxJmoiGNyDSaDN9M2zQvEEZYgCL8tTUHY7V")
-  ,("trk"      ,trkJet      ,xx "EDeWJgR8hGeWPYNssgXcvmfZnj2bcPt1CEJTSTgkpSd4")
+  ,("trk"      ,trkJet      ,xx "8ZuE9KAorFXCGehzTxVx5StfhJnYhWS4BDPSExYvSx2F")
   ,("die"      ,dieJet      ,xx "3Gojkov63gvagvD5ecU8GC8MtcStBu2N4MLm1X9sK7pA")
 
   ,("idx"      ,idxJet      ,xx "FSH7zD4Fboh4aFczaaQxFp7dYYvdiQBBkpnGvVM79dyq")
@@ -103,9 +88,9 @@ table =
 
   ,("match"    ,matchJet    ,xx "DXnz6XAngvPQTL9bWcwPjGbbvXpztKspf8CDcs2zPDy3")
   ,("switch"   ,switchJet   ,xx "4ircYrbfoUEzxhwd2XXDVV951pthnQpgFdRcfmSq4qeV")
-  ,("tabMatch" ,tabMatchJet ,xx "9tQmnthpJ29Qkq5g4vVkF77HUFuDxqqkKN6Mb8fJ7gFL")
-  ,("tabSwitch",tabSwitchJet,xx "3TsXC2itsyA1bs1Vbi8JLwLE8dyc8hrWeAZUcFQrRWRY")
-  ,("tabIdx"   ,tabIdxJet   ,xx "BAbMUHun4xtFwJaA2Asg6GpFshTQtB7xPY8GyuqTs52h")
+  ,("tabMatch" ,tabMatchJet ,xx "HDh7DCABxndaF1bPGAezVnz9o7X1Sr7jXpcJQD6UnP3G")
+  ,("tabSwitch",tabSwitchJet,xx "Bocjwy6qgxYkhQSWJYL2Crm45VfxeQgNkR9vxZgp4Z4i")
+  ,("tabIdx"   ,tabIdxJet   ,xx "9QCviZE5sQoQFKGXU11UW4BYDCuGzVXbmkUd9Pjke7cD")
   ,("add32"    ,add32Jet    ,xx "HZ4jJ3MzmHSf4QmH1Razq2WoyangLiSMLx3CY1WGB4M9")
   ,("sub32"    ,sub32Jet    ,xx "BFrP5zH9gHEksWuHP5DHPCCoNxFcxwVcqcCAoGnG2DCZ")
   ,("mul32"    ,mul32Jet    ,xx "F86MN69Za5o6PEnEW5HQphW6kUPQSPfecifofn2Lab39")
@@ -119,7 +104,7 @@ table =
   ,("rol32"    ,rol32Jet    ,xx "HeaanJnwYU3wy6PuqpnxsBu5U8eHnMSFJftrwapgDDgE")
 
   ,("concat"   ,concatJet   ,xx "G51qSwgUzG9JhJ3H24PEB9FpSJ8mq7MVKfGHT9VhqVgu")
-  ,("implode"  ,implodeJet  ,xx "8h5uYzMs65zpLFMu2iSBGD9dDwnqfrhBunTFB2xkJina")
+  ,("implode"  ,implodeJet  ,xx "A6QTDwkJDQE6rzgYpmWZTWMdwxBwaG6dRo5eVJAaQV4A")
   ]
  where
   matchJet     k xs = orExec k xs Nothing
@@ -309,9 +294,6 @@ jetMatch b@(P _ref _blob haz _exe core) = unsafePerformIO $ do
 
 jetsByHash :: Map ByteString (Text, (Val -> [Val] -> Val))
 jetsByHash = mapFromList (table <&> \(n,f,h) -> (h,(n,f)))
-
-jetsByName :: Map Text (ByteString, (Val -> [Val] -> Val))
-jetsByName = mapFromList (table <&> \(n,f,h) -> (n,(h,f)))
 
 allJetNames :: Set Text
 allJetNames = setFromList $ fmap (\(n,_,_) -> n) table

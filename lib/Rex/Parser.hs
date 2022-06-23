@@ -65,18 +65,18 @@ formToRex = form
  where
   form :: Form -> R.Rex
   form (BEFO ru bod) = rn R.SHUT_PREFIX ru [form bod]
-  form (SHIN i [])   = itmz i
-  form (SHIN i is)   = R.C (R.AS (itmz i) (over _2 itmz <$> is)) Nothing
+  form (SHIP i)      = itmz i
+  form (SHIN ru ps)  = rn R.SHUT_INFIX ru (itmz <$> ps)
 
   nest :: Nest -> R.Rex
   nest (WRAPD f)    = form f
   nest (PREFX r fs) = rn R.NEST_PREFIX r (form <$> fs)
-  nest (INFIX w []) = goApp w
-  nest (INFIX w ws) = R.C (R.AN (goApp w) (over _2 goApp <$> ws)) Nothing
+  nest (PAREN ns)   = goApp ns
+  nest (INFIX r fs) = rn R.NEST_INFIX  r (goApp <$> fs)
 
   goApp :: [Form] -> R.Rex
   goApp = form . \case [x] -> x
-                       xs  -> SHIN (NEST (PREFX "|" xs) :| []) []
+                       xs  -> SHIP (NEST (PREFX "|" xs) :| [])
 
   itmz :: Itmz -> R.Rex
   itmz (i :| [])   = item i
