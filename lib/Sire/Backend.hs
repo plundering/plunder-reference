@@ -268,15 +268,17 @@ type Pln = P.Val
 type GetPlun v = State (Int, Map ByteString Int, [(v, Val Int)])
 
 valPlun :: Val P.Val -> P.Val
-valPlun (NAT a)     = AT a
-valPlun (REF v)     = v
-valPlun (APP f x)   = valPlun f %% valPlun x
-valPlun (BAR b)     = P.mkBar b
-valPlun (ROW r)     = P.mkRow (toList $ valPlun <$> r)
-valPlun (LAW n a b) = P.mkLaw n a (valPlun $ bodVal b)
-valPlun (COW n)     = P.nodVal $ P.DAT $ P.COW n
-valPlun (TAB t)     = P.nodVal $ P.DAT $ P.TAB $ (valPlun <$> t)
-valPlun (CAB k)     = P.nodVal $ P.DAT $ P.CAB k
+valPlun (NAT a)          = AT a
+valPlun (REF v)          = v
+valPlun (APP f x)        = valPlun f %% valPlun x
+valPlun (BAR b)          = P.mkBar b
+valPlun (ROW r)          = P.mkRow (toList $ valPlun <$> r)
+valPlun (LAW n a b)      = P.mkLaw n a (valPlun $ bodVal b)
+valPlun (COW 0)          = P.nodVal $ P.DAT $ P.ROW mempty
+valPlun (COW n)          = P.nodVal $ P.DAT $ P.COW n
+valPlun (TAB t)          = P.nodVal $ P.DAT $ P.TAB $ fmap valPlun t
+valPlun (CAB k) | null k = P.nodVal $ P.DAT $ P.TAB mempty
+valPlun (CAB k)          = P.nodVal $ P.DAT $ P.CAB k
 
 plunAlias :: P.Val -> Maybe (Val P.Val)
 plunAlias (P.VAL _ P.PIN{}) = Nothing

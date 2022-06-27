@@ -708,30 +708,31 @@ readCow = matchLeaf "R[0-9]+" \case
     _ -> Nothing
 
 readBod :: Red m v XBod
-readBod = asum [ XCNS . XVNAT <$> readNat -- TODO: Depends on scope.
-               , readCow <&> \case 0 -> XBAD (XVROW mempty)
-                                   n -> XBAD (XVCOW n)
-               , XVAR <$> readSymb
-               , rune "|" >> (uncurry xapp <$> form1Nc readBod readBod)
-               , rune "-" >> (uncurry xapp <$> form1Nc readBod readBod)
-               , rune ":" >> form1c (XBAD <$> readVal)
-                             -- TODO Accept multiple params
-               , rune "!" >> form1c (XCNS <$> readVal)
-               , rune "@" >> do (n, v, k) <- form3c readSymb readBod readBod
-                                pure (XLET n v k)
-               ]
-
-xapp :: XBod -> [XBod] -> XBod
-xapp a []    = a
-xapp a (b:c) = xapp (XAPP a b) c
+readBod = asum
+    [ XCNS . XVNAT <$> readNat -- TODO: Depends on scope.
+    , readCow <&> \case 0 -> XBAD (XVROW mempty)
+                        n -> XBAD (XVCOW n)
+    , XVAR <$> readSymb
+    , rune "|" >> (uncurry xapp <$> form1Nc readBod readBod)
+    , rune "-" >> (uncurry xapp <$> form1Nc readBod readBod)
+    , rune ":" >> (uncurry xbad <$> form1Nc readVal readVal)
+    , rune "!" >> (uncurry xcns <$> form1Nc readVal readVal)
+    , rune "@" >> (xlet <$> form3c readSymb readBod readBod)
+    ]
+  where
+    xlet = \(n,v,k) -> XLET n v k
+    xbad = \v vx -> XBAD (xvap v vx)
+    xcns = \v vx -> XCNS (xvap v vx)
+    xvap = foldl' XVAPP
+    xapp = foldl' XAPP
 
 readExcplicitTag :: Red m v LawName
-readExcplicitTag =
-  fmap LN $
-  asum [ utf8Nat <$> readCord
-       , utf8Nat <$> readSymb
-       , readNat
-       ]
+readExcplicitTag = LN <$> asum tag
+  where
+    tag = [ utf8Nat <$> readCord
+          , utf8Nat <$> readSymb
+          , readNat
+          ]
 
 readTag :: Red m v Tag
 readTag = asum

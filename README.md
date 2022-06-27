@@ -21,7 +21,7 @@ The code run on user's computers then changes, to add unused features
 or to be even more user hostile, and being open source is not a defense
 against this. Product designers usually deride any complaints about this
 process as "change aversion". But aversion to these changes is correct:
-changes are an externally that product managers and designers force on
+changes are an externality that product managers and designers force on
 users, where change often makes the product worse for the user, while
 the product manager or engineer can reap the benefits by Demonstrating
 Impact to a promotion committee.
@@ -48,7 +48,7 @@ system from top to bottom. We need a computational formalism that:
     inspectable.
 
 -   The formalism must never change, as it will then be susceptible to
-    embraced/extended/extinguished.
+    embrace/extend/extinguish.
 
 -   For every computation, the formalism must have a single
     deterministic answer. Divergent behaviour between implementations
@@ -148,12 +148,13 @@ But once again, the vector doesn't have a canonical form as a list if you
 try to inspect them. This vector data type is a primitive and does not
 have a representation in the unenriched lambda calculus.
 
-What is the Plunder project? Plunder defines an encoding of the
-unenriched lambda calculus on top of binary trees of natural numbers,
-where everything in the system is a binary tree value, while still being
-performant by allowing what would be built-in primitive functions like
-subtract or data structures like vectors with memory locality to have
-definitions given in the binary tree formalism.
+What is the Plunder project? Plunder is a simple functional VM that
+encodes function application with arities on top of binary trees of
+natural numbers. You can compile the lambda calculus to Plunder just by
+lambda lifting. Everything in the system is a binary tree value, while
+still being performant by allowing what would be built-in primitive
+functions like subtract or data structures like vectors with memory
+locality to have definitions given in the binary tree formalism.
 
 Show me a demo of why that matters
 ----------------------------------
@@ -226,41 +227,90 @@ interpreter can use any representation that's a proper bijection to
 it. And that bijection can contain higher level concepts like, "This
 binary tree value pattern matches to the well known specification of
 natural number subtract, just run natural number subtract instead of
-performing all the raw lambda term substitutions."
+performing all the raw function application."
 
 But even when pattern matched by the interpreter, `sub` is still a value
-you can print and inspect.
+you can print and inspect. Without delving into the function
+representation, you can see that we're able to pull apart `sub` into its
+component binary tree values with the standard `car`, `cdr`, `cadr` etc.
 
     $ sire tests/laws.sire
     [a ton of output, printing out each value in the standard library]
+    ;
+    ; ==== Sire REPL ====
+    ;
+    ; Since input is multi-line, there is currently no input-prompt.
+    ; Just type away!
+    ;
 
-    > sub
+    sub
     [sub a b]:=[exec:dec a b]
 
-    > lawBody | pinItem sub
-    _/[0 [0 exec-dec 1] 2]
+    car sub
+    _/4
+
+    cdr sub
+    _/(sub a b ? exec:dec a b)
+
+    cadr sub
+    _/[0 %sub 2]
+
+You can also construct the raw function value by putting its parts back
+together:
+
+    ((car sub) (cdr sub))
+    [sub a b]:=[exec:dec a b]
+
+    sub 10 2
+    _/8
+
+    ((car sub) (cdr sub)) 10 3
+    _/7
+
+    ((car sub) ((cadr sub) (cddr sub))) 10 4
+    _/6
+
+    ((car sub) ((cadr sub) ((caddr sub) (cdddr sub)))) 10 5
+    _/5
 
 You might complain that focusing so hard on partial application is a
 distraction (we disagree, since a lot of functions in Haskell are defined
 in terms of smaller functions), so let's focus on data structures.
 
-In the unenriched lambda calculus, index based vectors are partially
-applied functions.
+If you just had function application and a system which pattern matched
+binary trees, how would you encode vectors? Well, you could encode them as
+partially applied functions. This would be so common, you probably want
+literal syntax for it:
 
-    > {1 2 3 4}
     {1 2 3 4}
+    _/{1 2 3 4}
 
-    > mkRow 4 1 2 3 4
-    {1 2 3 4}
+But what is this value? It's a well known constructor function which can
+be pattern matched by the interpreter. We give it the size of the vector.
 
-This value is also statically pattern matchable by the interpreter and
-can be replaced with whatever array like data structure the host language
-has instead of doing all the lambda term manipulation. Likewise,
-functions that operate on vectors can be statically recognizable so that
-they can then operate on that memory optimized structure.
+    mkRow 4
+    _/R4
 
-And if an interpreter doesn't implement this pattern matching, it doesn't
-break semantics at all.
+    mkRow 4 1 2 3 4
+    _/{1 2 3 4}
+
+    mkRow 4 1 2 3 4 0
+    _/R4
+
+This value can be statically pattern matched by the interpreter and can
+be replaced with whatever array like data structure the host language has
+instead of doing all the function application. Likewise, functions that
+operate on vectors can be statically recognized so that they can then
+operate on that memory optimized structure. But if an interpreter doesn't
+implement pattern matching, it doesn't break semantics at all because it
+can just evaluate the raw binary tree.
+
+Using partial function application, you can build data structures that
+are backed by optimized representations. And since they're just function
+application values, you can serialize them or send these values over a
+wire, even between interpreters written in different languages with
+different internal structures.
+
 
 More Documentation
 ==================
@@ -325,3 +375,9 @@ Sire: A simple bootstrapping language.
 Starting with only lambdas and macros, we can bootstrap a whole
 ecosystem from scratch.  There is no need for "pills", since we can
 freeze the bootstrapping language.
+
+<!---
+Local Variables:
+fill-column: 73
+End:
+-->

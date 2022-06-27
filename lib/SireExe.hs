@@ -75,6 +75,19 @@ main = do
 
     for_ filz $ \p -> do
         replFile p (runBlockPlun False plunActor vEnv vMac vLin)
+
+    liftIO $ putChunk
+           $ (bold . fore green . chunk)
+           $ unlines
+           [ ";"
+           , "; ==== Sire REPL ===="
+           , ";"
+           , "; Since input is multi-line, there is currently no input-prompt."
+           , "; Just type away!"
+           , ";"
+           , ""
+           ]
+
     replStdin (runBlockPlun True plunActor vEnv vMac vLin)
 
 runBlockPlun
@@ -124,13 +137,13 @@ showPin self =
             let XLAW t as b = resugarRul self (RUL ln lt lb)
                 vl = hackup (bodRex b)
             in chooseMode vl
-                 (N SHUT_INFIX ":=" [xtagApp t as, vl] Nothing)
-                 (N OPEN       ":=" [xtagApp t as] (Just vl))
+                 (\vl2 -> (N SHUT_INFIX ":=" [xtagApp t as, vl2] Nothing))
+                 (\vl2 -> (N OPEN       ":=" [xtagApp t as] (Just vl2)))
         v ->
             let vl = hackup (valRex (resugarVal v))
             in chooseMode vl
-                 (N SHUT_INFIX ":=" [parens [nameRex self], vl] Nothing)
-                 (N OPEN       ":=" [parens [nameRex self]] (Just vl))
+                 (\vl2 -> (N SHUT_INFIX ":=" [parens [nameRex self], vl2] Nothing))
+                 (\vl2 -> (N OPEN       ":=" [parens [nameRex self]] (Just vl2)))
   where
     hackup (N SHUT_INFIX "-" cs Nothing) = N NEST_PREFIX "|" cs Nothing
     hackup x                             = x
@@ -141,12 +154,13 @@ showAlias shape bind vl =
   where
     vr = valRex (resugarVal vl)
     rx = chooseMode vr
-             (N SHUT_INFIX "/" [textRex shape bind, vr] Nothing)
-             (N OPEN "/" [textRex shape bind] (Just vr))
+           (\vr2 -> (N SHUT_INFIX "/" [textRex shape bind, vr2] Nothing))
+           (\vr2 -> (N OPEN "/" [textRex shape bind] (Just vr2)))
 
-chooseMode :: GRex a -> GRex a -> GRex a -> GRex a
-chooseMode (N OPEN _ _ _) _    open = open
-chooseMode _              wide _    = wide
+chooseMode :: GRex a -> (GRex a -> GRex a) -> (GRex a -> GRex a) -> GRex a
+chooseMode vr@(N OPEN _ _ _)          _    open = open vr
+chooseMode    (N SHUT_INFIX "-" k h)  wide _    = wide (N NEST_PREFIX "|" k h)
+chooseMode vr@_                       wide _    = wide vr
 
 printValue :: Bool -> Maybe (TextShape, Text) -> Pln -> ExceptT Text IO ()
 printValue shallow mBinder vl = do
@@ -545,10 +559,8 @@ expBod s@(_, tab) = \case
     EBAR n     -> pure (1, BCNS (BAR n), Nothing)
     ETAB ds    -> doTab ds
     EVEC vs    -> doVec vs
-    ECOW n     -> pure (fromIntegral n, BCNS (COW n), Nothing)
-                    -- ^ TODO What arity?
-    ECAB n     -> pure (length n, BCNS (CAB n), Nothing)
-                    -- ^ TODO What arity?
+    ECOW n     -> pure (1+fromIntegral n, BCNS (COW n), Nothing)
+    ECAB n     -> pure (1+(length n), BCNS (CAB n), Nothing)
     EHAZ haz   -> pure $ unsafePerformIO do
         -- TODO This shouldn't be an expression-level feature.  Only a
         -- top-level command.
@@ -564,7 +576,11 @@ expBod s@(_, tab) = \case
     doVec vs = do
         es <- traverse (expBod s) vs
 
-        let ex = vecApp (vecLaw $ fromIntegral $ succ $ length vs) (view _2 <$> es)
+        let mkCow 0 = ROW mempty
+            mkCow n = COW n
+
+        let cow = (mkCow $ fromIntegral $ length vs)
+        let ex = vecApp cow (view _2 <$> es)
 
         pure $ if all (> 0) (view _1 <$> es)
                then (1, ex, Nothing)
@@ -582,30 +598,13 @@ expBod s@(_, tab) = \case
 
         let aris = view _1 <$> rs
             vals = view _2 <$> rs
-            ex = vecApp (tabLaw keyz) vals
+            ex = vecApp (CAB $ setFromList keyz) vals
             ar = if all (> 0) aris then 1 else 0
 
         pure (ar, ex, Nothing)
 
-    tabLaw :: [Nat] -> Val a
-    tabLaw ks = vecTmpl (LN 2) ar (valApp (vecLaw ar) (NAT <$> ks))
-      where
-        ar = fromIntegral (length ks + 1)
-
-    vecLaw :: Nat -> Val a
-    vecLaw ar = vecTmpl (LN 1) ar 0
-
-    vecTmpl :: LawName -> Nat -> Val a -> Val a
-    vecTmpl nm ar bd = NAT 0 `APP` NAT (lawNameNat nm)
-                             `APP` NAT ar
-                             `APP` bd
-
     vecApp :: Val a -> [Bod a] -> Bod a
     vecApp cnstr params = cnsApp cnstr params
-
-    valApp :: Val a -> [Val a] -> Val a
-    valApp f = \case []   -> f
-                     x:xs -> valApp (APP f x) xs
 
     bodApp f = \case []   -> f
                      x:xs -> bodApp (BAPP f x) xs

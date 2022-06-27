@@ -14,7 +14,7 @@
 
         COW: Rn         = (0 1 (n+1) 0)
         CAB: %{...}     = (0 2 (n+1) {...}) where n=length([...])
-        BAR: bx'00ff00' = (0 3 1 (2 0xff00 1))
+        BAR: bx'00ff00' = (0 1 1 0x0100ff00)
         ROW: {...}      = (Rn ...) where n=length([...])
         TAB: %{k=v ..}  = (%{k ..} v ..)
 
@@ -22,9 +22,10 @@
 
         COW: (R2 x y)     -> {x y}
         CAB: (%{a b} x y) -> %{a=x b=y}
-        BAR: bx'00ff00' 0 -> (2 0xff00 1)
-        ROW: {x y} 0      -> R2
-        TAB: %{k=v ...} _ -> {k ...}
+        BAR: bx''       9 -> 0
+        BAR: bx'00ff00' 9 -> 0x0100ff00
+        ROW: {x y} 9      -> R2
+        TAB: %{k=v ...} 9 -> {k ...}
 -}
 
 module Plun.Data
@@ -41,24 +42,26 @@ import PlunderPrelude
 
 import Data.Map (toAscList)
 
-import qualified Data.Set    as S
-import qualified Data.Vector as V
+import qualified Data.ByteString as BS
+import qualified Data.Set        as S
+import qualified Data.Vector     as V
 
 -- Data Jets -------------------------------------------------------------------
 
 matchData :: LawName -> Nat -> Val -> Maybe Dat
-matchData (LN 1) 1 (AT 0)                = Just $ ROW (fromList [])
-matchData (LN 1) n (AT 0)                = Just $ COW (n-1)
-matchData (LN 2) n (VAL _ (DAT (ROW v))) = matchTab n v
-matchData (LN 3) 1 (VAL _ (DAT (ROW v))) = matchBar v
+matchData (LN 0) 1 (VAL _ (NAT 0))       = Just $ ROW (fromList [])
+matchData (LN 0) n (VAL _ (NAT 0))       = Just $ COW (n-1)
+matchData (LN 0) n (VAL _ (DAT (ROW v))) = matchTab n v
+matchData (LN 1) 1 (VAL _ (NAT n))       = matchBar n
 matchData (LN _) _ _                     = Nothing
 
-matchBar :: Vector Val -> Maybe Dat
-matchBar (toList -> [AT b, AT z]) = Just $ BAR $ mkBarBS b z
-matchBar _                        = Nothing
-
-mkBarBS :: Nat -> Nat -> ByteString
-mkBarBS b z = natBytes b <> replicate (fromIntegral z) 0
+matchBar :: Nat -> Maybe Dat
+matchBar n = do
+    guard (n /= 0)
+    let bitWidth = (natBitWidth n :: Nat) - 1
+    guard (0 == (bitWidth `mod` 8))
+    let bytWidth = fromIntegral (bitWidth `div` 8)
+    pure $ BAR $ take bytWidth $ natBytes n
 
 mkBar :: ByteString -> Val
 mkBar = VAL 1 . DAT . BAR
@@ -81,25 +84,31 @@ matchTab n vs = do
 evalData :: [Val] -> Dat -> Val
 evalData arg (COW _) = nodVal $ DAT $ ROW $ fromList arg
 evalData arg (CAB k) = nodVal $ DAT $ TAB $ mapFromList $ zip (toList k) arg
-evalData _   (ROW _) = AT 0
-evalData _   (TAB _) = AT 0
-evalData _   (BAR _) = AT 0
+evalData _   (ROW n) = nodVal $ DAT $ COW $ fromIntegral $ length n
+evalData _   (TAB t) = nodVal $ DAT $ ROW $ fmap AT $ fromList $ keys t
+evalData [x] (BAR b) = if null b then x else AT (barBody b)
+evalData _   (BAR _) = error "impossible"
 
-dataWut :: forall a . (LawName -> Nat -> Val -> a) -> (Val -> Val -> a) -> Dat -> a
+barBody :: ByteString -> Nat
+barBody bytes =
+    -- TODO Make this not slow
+    bytesNat (bytes <> BS.singleton 1)
+
+-- TODO Carefully review!
+dataWut
+    :: ∀a
+     . (LawName -> Nat -> Val -> a)
+    -> (Val -> Val -> a)
+    -> Dat
+    -> a
 dataWut rul cel = \case
     ROW v -> case toList v of
-                    []   -> rul (LN 1) 1 (AT 0)
+                    []   -> rul (LN 0) 1 (AT 0)
                     x:xs -> apple (DAT $ COW sz) (x :| xs)
                where sz = fromIntegral (length v)
     TAB d -> tabWut d
-    BAR b -> rul (LN 3) 1 body
-      where
-        body = nodVal $ DAT $ ROW $ fromList $ [AT bits, AT zers]
-        bits = bytesNat b
-        zers = fromIntegral (length b - length b')
-                 where b' = natBytes bits
-
-    COW n -> rul (LN 1) (n+1) (AT 0)
+    BAR b -> rul (LN 1) 1 (AT $ barBody b)
+    COW n -> rul (LN 0) (n+1) (AT 0)
     CAB k -> cabWut k
   where
     apple :: Nod -> NonEmpty Val -> a
@@ -115,6 +124,6 @@ dataWut rul cel = \case
             val = snd <$> par
 
     cabWut :: Set Nat -> a
-    cabWut ks = rul (LN 2) nArgs (nodVal $ DAT $ ROW $ AT <$> k)
+    cabWut ks = rul (LN 0) nArgs (nodVal $ DAT $ ROW $ AT <$> k)
       where nArgs = fromIntegral (length k+1)
             k     = fromList (S.toAscList ks)

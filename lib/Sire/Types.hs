@@ -233,14 +233,27 @@ data Cmd z v a
   | EPLOD (XExp z)
  deriving (Eq, Ord, Show, Functor, Foldable, Traversable, Generic, NFData)
 
+{-
+    XPRINT: expr
+    XVOPEN: * {..} expr
+    XDUMPY: < expr
+    XCHECK: ?? expr
+    XMKRUL: x=3
+    XMKRUL: (f x)=3
+    XALIAS: x:=3
+    XDEFUN: [x]:=3
+    XDEFUN: [f x]:=3
+    XSAVEV: <<expr        (TODO Get rid of this)
+    XIOEFF: {i r}<-{...}
+    XMACRO: [#= "*" ...]  (TODO Replace with `=`)
+    XPLODE: #?(...)
+-}
 data XCmd z
   = XPRINT (XExp z)
   | XVOPEN [Text] (XExp z)
   | XDUMPY (XExp z)
   | XCHECK [XExp z]
-
   | XMKRUL XLaw
-
   | XALIAS [(Text, XVal)]
   | XDEFUN [XFun z]
   | XSAVEV (XExp z)

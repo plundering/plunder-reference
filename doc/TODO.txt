@@ -1,7 +1,102 @@
+Loot
+====
+
+- Update parser to match printer.
+
+- Separate Loot from Sire
+
+- Separate Loot from Sire
+
+- Update parser to match printer.
+
+- Consider NOT re-using bindings names in nested laws (in value syntax).
+
+    For example:
+
+        := [natWords a]
+        | switch a
+           . natWords a
+           ? [loop a b]
+           | switch b
+              | cordConcat
+              | R2 [loop a div-b-10] [a mod-b-10]
+           , 0 %One %Two %Three %Four %Five %Six %Seven %Eight %Nine
+        | {%Zero}
+
+    Should be:
+
+        := [natWords a]
+        | switch a
+           . natWords a
+           ? [loop b c]
+           | switch c
+              | cordConcat
+              | R2 [loop b div-c-10] [b mod-c-10]
+           , 0 %One %Two %Three %Four %Five %Six %Seven %Eight %Nine
+        | {%Zero}
+
+    Technically the re-use of `a` in `loop` is valid, because the `Loot`
+    language does not have lexical scope for law literals.  But it's
+    still confusing.
+
+Rex
+===
+
+-   Rex runes should be indentation sensitive along the right side (not left)
+
+    These, for example, are aligned:
+
+        %%% x
+          | y
+         ^^ z
+
+    Instead of the current:
+
+        %%% x
+        | y
+        ^^ z
+
+-   TODO: Build out a real pretty-printing framework
+
+    Replace this nonsense try-every-way brute force system.
+
+-   Bare expressions should not terminate a block unless they are the
+    first line.  This is important now that this syntax is acceptable:
+
+    ```
+    | f x
+    y
+    z
+    ```
+
+Sire
+====
+
+-   Inline Lambdas: `(x:x 3) := 3`
+-   Static Lambdas: `(x![add x x] 3) := 6`
+-   Lazy Loading
+-   All command runes should be two-characters (except =)
+-   Cleanup SireExe.
+-   Assertions should print evaluated arguments
+
+    `?? eql (add 1 2) (inc 9)` should print `?? eql 3 10` to show what failed.
+
+    Right now it just prints `1!=0` and `?? eql (add 1 2) (inc 9)`.
+
+Mandelbrot
+==========
+
+- TODO Get Mandelbrot code running correctly.
+
 Macros
 ======
 
--   Implement command macros.
+- `*` macro supports tabs.
+- Support other types of pattern matching.
+- Composite Pattern matching (multiple forms)
+- \cases syntax
+
+- Implement command macros.
 
     Macros currently only work on expressions, but it would be useful
     to have command-macros as well.
@@ -9,163 +104,34 @@ Macros
     Command macros should also be able to directly modify the environment,
     the macros table, and maybe the requests table.
 
--   Macro definition should just use the `=` rune.  Add some way to
-    refer to non-identifier symbols.  Like, to enable us to have a global
-    variable named 0.
+- Macro definition should just use the `=` rune.
+
+    Add some way to refer to non-identifier symbols.  Like, to enable
+    us to have a global variable named 0.
 
     This is useful because it means that we can do things like
 
-        ','=rowMacro
-        ! eql $$',' $$','
-        ! eql [$$',' 0 0 emptyRow 0] [$$',' 0 0 emptyRow 0]
+    ```
+    ','=rowMacro
 
--   Consider using `,,,` or one-item-per-line row literals.
+    ?? eql `"," `","
+    ?? eql [`"," 0 0 emptyRow 0] [`"," 0 0 emptyRow 0]
+    ```
+
+    TODO But what about command macros?  There needs to be a clear
+         separation too, because commands should be able to modify the
+         environment, which requires a different API for expression-macros
+         and command-macros.
+
+- Consider using `,,,` (or `,,`?) for one-item-per-line row literals.
 
     ',' is hard to see, and the syntax rules are unintuitive.  For
     example, the following two expressions are interpreted in totally
     different ways.  This is confusing.
 
-        , f x  ==>  {f x}
-
-        , f x
-        , f x  ==>  {(f x) (f x)}
-
-
-Named Let Bindings
-==================
-
-Consider NOT re-using names in nested laws (in value syntax).
-    For example:
-
-        := [natWords a]
-        | switch a
-           |  ? [loop a b]
-              | switch b
-                 | cordConcat
-                 | R2 [loop a div-b-10]
-                 | a mod-b-10
-        ...
-
-    Technically the re-use of `a` in `loop` is valid, because the `Loot`
-    language does not have lexical scope for law literals.  But it's still
-    confusing.
-
--   Consider adding an optional tag to let bindings, (1 TAG e b) which
-    could make disassembler output more readable.
-
-    Interestingly, this makes all code-forms have different shapes.
-    We could technically use `1` for all code-forms.
-
-        (1 x)     -> x
-        (1 f x)   -> f x
-        (1 v x b) -> let v=x in b (where v is just a tag-hint)
-
-    Swapping the 0 and 1 primitives, that becomes:
-
-        0         -> SELF_REFERENCE
-        (0 x)     -> x
-        (0 f x)   -> f x
-        (0 v x b) -> let v=x in b (where v is just a tag-hint)
-
-    Probably a bad idea.
-
-Data Jets
-=========
-
--   Rows should use tag 0 (like lambdas)
-
-    `{%x %y %z}=((0 0 4 0) %x %y %z)`
-
--   Tabs should also use tag 0.
-
     ```
-    %{x='a' y='b' z='c'}
-        ==>
-    ([0 0 4 {%x %y %z}] %a %b %c)`
-        ==>
-    (0 0 4 (0 0 4 0 %x %y %z) %a %b %c)`
+    , f x  ==>  {f x}
+
+    , f x
+    , f x  ==>  {(f x) (f x)}
     ```
-
--   Bars should use tag `1` and be a single natural number with the
-    high-bit set:
-
-    ```
-    BX""     = (0 1 1 1)
-    BX"00"   = (0 1 1 256)
-    BX"ff"   = (0 1 1 511)
-    BX"0000" = (0 1 1 65536)
-    ```
-
-These changes will decrease jam-size of data jets.  In particular,
-sharing the same tag for rows and tabs means that the law-header `(0 0
-n)` will be shared between the tab and the key-set:
-
-    | [0 0 4]
-       | [0 0 4] 0
-       %x %y %z
-    %a %b %c
-
-
-alpha2
-======
-
-- TODO Remove `Backend` abstraction and work directly with `Plun.Val`.
-
-    TODO This is done now, but still need to take advantage of concretion
-         to remove `ExceptT Text IO` where possible
-
-    Sire-in-Sire should provide it's own parsing, printing, etc.
-
-    When we go to rebuild the C runtime system, we can just build a whole
-    Sire system directly into that.  Simple rex parser, simple sire
-    reader, etc.  This also removes the need to build out a proper CFFI,
-    move things between the GHC/C heaps, etc.
-
-alpha3
-======
-
-- TODO Get Mandelbrot code running correctly.
-- Separate Val/Bod from Sire and name it "Loot".
-
-
-alpha3
-======
-
-- Inline Lambdas: (x:x 3)         := 3
-- Static Lambdas: (x![add x x] 3) := 6
-- Lazy Loading
-
-
-Pretty Printing
-===============
-
-TODO: Build out a real pretty-printing framework
-
-    Replace this nonsense try-every-way brute force system.
-
-
-Minor Changes
-=============
-
-- All command runes should be two-characters (except =)
-
-Macros
-======
-
-- Macroify Pattern Matching
-- Macroify Cores
-- `*` macro supports tabs.
-- Support other types of pattern matching.
-- Composite Pattern matching (multiple forms)
-- \cases syntax
-
-
-Rex
-===
-
-Bare expressions should not terminate a block unless they are the
-first line.  This is important now that this syntax is acceptable:
-
-    | f x
-    y
-    z

@@ -62,7 +62,7 @@ A claim is an extensible sum-type of possible identity information for
 a process. Currently, only the following claim is implemented:
 
 ```
-{0 Nat} [ local_address ]
+{0 Nat} ; local_address
 ```
 
 `local_address` is simply a non-unique process id number. It is non-unique
@@ -72,8 +72,8 @@ discuss the implications in a future section.
 We intend to implement:
 
 ```
-{1 Nat} [ local_display_name ]
-{2 Nat} [ ed25519_blake3_private_key ]
+{1 Nat} ; local_display_name
+{2 Nat} ; ed25519_blake3_private_key
 ```
 
 Where `local_display_name` is meant for a process browser and
@@ -104,16 +104,16 @@ Elements of the request table must be of one of the following
 value-shapes, anything else will simply be ignored.
 
 ```
-1                 -> IO Nat       [ local_next ]
-{2 Exe}           -> IO {}        [ local_fork_heed ]
-{3 Exe}           -> IO {}        [ local_fork_omit ]
-{4 Nat}           -> IO Why       [ local_bury ]
-{5 Nat Val}       -> IO {}        [ local_kill ]
-{6 Nat Nat Val}   -> IO {}        [ local_send ]
-{7 Nat (Row Nat)} -> IO {Nat Val} [ local_recv ]
-{8 Wen}           -> IO Wen       [ wait ]
-9                 -> IO Wen       [ when ]
-10                -> IO Bar       [ rand ]
+1                 -> IO Nat       ; local_next
+{2 Exe}           -> IO {}        ; local_fork_heed
+{3 Exe}           -> IO {}        ; local_fork_omit
+{4 Nat}           -> IO Why       ; local_bury
+{5 Nat Val}       -> IO {}        ; local_kill
+{6 Nat Nat Val}   -> IO {}        ; local_send
+{7 Nat (Row Nat)} -> IO {Nat Val} ; local_recv
+{8 Wen}           -> IO Wen       ; wait
+9                 -> IO Wen       ; when
+10                -> IO Bar       ; rand
 ```
 
 #### 1: local_next

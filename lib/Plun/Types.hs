@@ -245,7 +245,7 @@ natArity _ = 1
 
 evalArity :: Nod -> Nat
 evalArity (LAW l)   = lawArgs l
-evalArity (PIN b)   = valArity (pinItem b)
+evalArity (PIN b)   = trueArity (pinItem b)
 evalArity (NAT n)   = natArity n
 evalArity (APP f _) = evalArity f - 1
 evalArity (DAT d)   = djArgs d

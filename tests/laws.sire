@@ -372,8 +372,8 @@ mkPin=4
 ;; Val Operations ;;
 ;;;;;;;;;;;;;;;;;;;;
 
-car/appHead
-cdr/appTail
+= (car x) | valCase _&4 (n a _ & 0 n a) (h _ & h) 0 x
+= (cdr x) | valCase x&x (_ _ b & b)     (_ t & t) 0 x
 
 = (caar x)  | car | car | x
 = (cadr x)  | car | cdr | x
@@ -418,6 +418,8 @@ cdr/appTail
 = (aeq x y) | and lte-y-x lte-x-y
 = (min x y) | if lte-x-y x y
 = (max x y) | if gth-x-y x y
+
+(square x)=(mul x x)
 
 ?? inc ( add 0   0   )
 ?? inc ( add 0   0-0 )
@@ -538,7 +540,9 @@ byteWeld=[bitWeld 8]
 ;; Rows ;;
 ;;;;;;;;;;
 
-(mkRow n)=[mkLaw 1 inc-n 0]
+(mkRow n)=[mkLaw 0 inc-n 0]
+
+?? | eql {0 1 2} (mkRow 3 0 1 2)
 
 = (natArgs x)
 | if [aeq 0 x] 3
@@ -556,12 +560,14 @@ byteWeld=[bitWeld 8]
 | if isHed-non non
 | head car-non
 
+= (isCow val)
+| and isLaw-val
+| and eql-0-(lawName val)
+      eql-0-(lawBody val)
+
 = (isRow r)
 | and [eql 1 arity-r]
-@ hed [head r]
-| and isLaw-hed
-| and eql-0-[lawBody hed]
-| eql-1-[lawName hed]
+| isCow head-r
 
 ?? isRow {}
 ?? isRow {1}
@@ -649,43 +655,31 @@ byteWeld=[bitWeld 8]
 ;; data Option a = NONE | SOME a ;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-;;;
-;;; TODO Consider using { NONE=0; (SOME x)={x}; }
-;;;
-
-= NONE     {0}
-= (SOME x) {1 x}
+= NONE     0
+= (SOME x) (0 x)
 
 = optionCase
 & [opt non som]
-| switch idx-0-opt 0
-, non
-, ! som idx-1-opt
+| if isNat-opt non
+! som cdr-opt
 
 (fromSome n x)=[! optionCase x n I]
 
-?? ! optionCase SOME-0 0 inc
-?? ! optionCase SOME-1 0 I
-?? ! optionCase SOME-2 0 dec
-?? ! optionCase NONE   1 die
-
+?? optionCase SOME-0 0 inc
+?? optionCase SOME-1 0 I
+?? optionCase SOME-2 0 dec
+?? optionCase NONE   1 die
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; data Either a b = LEFT a | RIGHT a ;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-;;;
-;;; TODO Consider using { NONE=0; (SOME x)={x}; }
-;;;
-
-= (LEFT x)  {0 x}
-= (RIGHT x) {1 x}
+= (LEFT x)  (0 x)
+= (RIGHT x) (1 x)
 
 = eitherCase
 & [x l r]
-| switch idx-0-x 0
-, ! l idx-1-x
-, ! r idx-1-x
+| if (car x) (r ! cdr-x) (l ! cdr-x)
 
 (fromRight l x)=[! eitherCase x l I]
 
@@ -696,23 +690,16 @@ byteWeld=[bitWeld 8]
 ?? ! eitherCase LEFT-1  I   die
 ?? ! eitherCase LEFT-0  inc die
 
-
-
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; data List a = NIL | CONS a (List a) ;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-;;;
-;;; TODO Consider using { NIL=0; (CONS x xs)={x xs}; }
-;;;
-
-= NIL         {0}
-= (CONS x xs) {1 x xs}
+= NIL         0
+= (CONS x xs) {x xs}
 
 = [listCase xs nil cons]
-| switch idx-0-xs 0
-, nil
-, [! cons idx-1-xs idx-2-xs]
+| if isNat-xs nil
+! cons idx-0-xs idx-1-xs
 
 = (listMap f l)
 ! listCase l NIL
@@ -722,8 +709,7 @@ byteWeld=[bitWeld 8]
 (listTurn l f)=(listMap f l)
 
 = (listHead l)
-! listCase l NONE
-& (x _) SOME!x
+! listCase l NONE (h _ & SOME h)
 
 = (listSafeHead fb l)
 ! listCase l fb (x _ & x)
@@ -817,7 +803,14 @@ byteWeld=[bitWeld 8]
 | get v
 
 = (drop n v)
-| gen [sub len-v n] i&[get v][add i n]
+| gen [sub len-v n] i&[get v add-i-n]
+
+= (reverse xs)
+@ wid len-xs
+| gen wid i&(get xs sub-wid-(inc i))
+
+?? eql {5 4 3} reverse-{3 4 5}
+?? eql {}      reverse-{}
 
 = (has ele row) | [any eql-ele row]
 
@@ -1007,7 +1000,7 @@ byteWeld=[bitWeld 8]
 @ wid   | len pairs
 @ keys  | map idx-0 pairs
 @ vals  | map idx-1 pairs
-@ cab   | mkLaw 2 inc-wid keys
+@ cab   | mkLaw 0 inc-wid keys
 | rowApply cab vals
 
 = (tabToRow tab)
@@ -1270,20 +1263,60 @@ byteWeld=[bitWeld 8]
 ;;; `3`
 ;;;
 
-= (mkBar bit pad) | mkLaw 3 1 {bit pad}
-= (natBar n)      | mkBar n 0
-= (barNat n)      | idx 0 | lawBody n
-= (barPad n)      | idx 1 | lawBody n
+= (byteWidth n)
+. 0 n
+? (loop acc n)
+| seq acc
+| ifZero n acc
+| loop (inc acc) (rsh n 8)
 
-= (barLen bar)
-* n,z [lawBody bar]
-| add z
-| div [roundUp bitWidth-n 8] 8
+= (barTrail n)
+. 0 n
+? (loop acc num)
+| seq acc
+| if (or eql-1-num eql-0-num)
+   | acc
+@ nex | rsh num 8
+@ nac | ifZero mod-num-8 (inc acc) 0
+| loop nac nex
+
+?? eql 0 (barTrail 0x1ff)
+?? eql 1 (barTrail 0x100ff)
+?? eql 2 (barTrail 0x10000ff)
+?? eql 3 (barTrail 0x1000000ff)
+?? eql 0 (barTrail 0x2000000ff)
+
+= (barEnc pad bits)
+| add bits
+| bex | mul 8 | add pad byteWidth-bits
+
+= (barDec n)
+| sub n | bex | mul 8 (dec byteWidth-n)
+
+= (checkBar expect pad nat)
+@ actual [barEnc pad nat]
+@ actNat [barDec actual]
+@ actPad [barTrail actual]
+| and eql-actual-expect
+| and eql-pad-actPad
+      eql-nat-actNat
+
+?? checkBar 1     0 0
+?? checkBar 257   0 1
+?? checkBar 511   0 255
+?? checkBar 65792 0 256
+?? checkBar 256   1 0
+?? checkBar 65791 1 255
+?? checkBar 65536 2 0
+
+= (mkBar pad bits) | mkLaw 1 1 (barEnc pad bits)
+= (natBar n)       | mkBar 0 n
+= (barNat n)       | barDec (lawBody n)
+= (barPad n)       | barTrail (lawBody n)
+= (barLen bar)     | dec | byteWidth | lawBody bar
 
 = (barIdx i bar)
-; trk [lawBody bar]
-; trk [idx 0][lawBody bar]
-. i [idx 0 | lawBody bar]
+. i [barNat bar]
 ? (loop i n)
 ; trk {%loop i n}
 | ifZero i [takeByte n]
@@ -1311,7 +1344,7 @@ byteWeld=[bitWeld 8]
       | take [sub siz pad] row
 @ fun [x acc]&[add x | lsh acc 8]
 @ bit | foldr fun 0 byt
-| mkBar bit pad
+| mkBar pad bit
 
 = (barGen n f)     | bytesBar | gen n f
 = (barGet bar idx) | barIdx idx bar
@@ -1335,7 +1368,7 @@ byteWeld=[bitWeld 8]
    | barWeld B"fds" B"afdsa"
 
 ; TODO Remove this when B becomes a compile-time function.
-emptyBar=(B"")
+emptyBar=(0 1 1 1)
 
 = (barConcat bs)
 | foldr barWeld emptyBar bs
@@ -2151,8 +2184,18 @@ hexAlphabet=[natBar "0123456789abcdef"]
 & nat
 | (nat, exp)
 
+= (unrollSlip2 rune fb rex)
+. NIL rex
+? (loop acc form)
+@ fallback
+    ! eitherCase fb-form I
+    | (right & loop CONS-right-acc 0)
+| if eql-0-form listToRowReversed-acc
+! rexGetNode form fallback
+& (n kids heir)
+| if (neq rune n) fallback
+| loop CONS-kids-acc heir
 
-; TODO Support non-= continuations
 = (unrollSlip2Tis fb rex)
 . NIL rex
 ? (loop acc form)
@@ -2631,6 +2674,31 @@ mulHaz=[jarHash mul]
 & r , lawName pinItem-r
     , jarHash r
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Macro: List Literals ;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+= [appify xs]
+| if (eql 1 len-xs) idx-0-xs
+| NODE "|" xs
+
+#= "~~"
+& (env nex xs mK)
+@ mkLit
+   | foldr (e rex)&[vecE e,rex] natE-0
+@ params
+   | if isNat-mK xs
+   | map appify
+   | unrollSlip2 "~~" x&(RIGHT{x})
+   | HEIR "~~" xs mK
+| {0 mkLit-params}
+
+?? eql {3 {4 {5 0}}} [~~ 3 4 5]
+?? eql [~~ 3 4 5]
+   ~~ 3
+   ~~ 4
+   ~~ 5
+
 ;;;;;;;;;;;;;;;
 ;; Val Types ;;
 ;;;;;;;;;;;;;;;
@@ -2642,7 +2710,7 @@ mulHaz=[jarHash mul]
 | listToRow
 ! CONS f args
 
-= inspect-x
+= (inspect x)
 | if isApp-x [unApp car-x ! CONS cdr-x NIL]
 | if isLaw-x {mkLaw lawName-x lawArgs-x lawBody-x}
 | if isPin-x {mkPin pinItem-x}
@@ -2662,6 +2730,19 @@ mulHaz=[jarHash mul]
 | if isNat-spec spec
 | runVec map-rebuild-spec
 
+= (unCell f args)
+| if isNat-f (listToRow CONS-f-args)
+| unApp car-f (CONS cdr-f args)
+
+= (showTreeBar x)
+| if isNat-x
+   | if okaySymbol-x [barWeld B'%' natBar-x]
+   | natBar showNat-x
+@ node | unCell car-x [CONS cdr-x NIL]
+@ kids | barIntercalate B" " map-showTreeBar-node
+| barConcat ( B"(" , kids , B")" )
+
+(showTree x)=[barNat | showTreeBar x]
 
 ;;;;;;;;;;;;;;;;;
 ;; Scratch Pad ;;
