@@ -13,6 +13,7 @@ import Foreign.Marshal.Alloc (allocaBytes)
 import Foreign.Ptr           (Ptr, castPtr, nullPtr)
 import Foreign.Storable      (peek, poke, sizeOf)
 import System.Directory
+import Plun                  (Pln)
 
 import Jar
 import Server.Convert
@@ -251,7 +252,7 @@ writeLogBatch who lb@LogBatch{..} = do
                            (BadPinWrite pinHash)
 
 -- Given a name, find a pin in the pin cushion.
-loadPin :: MDB_txn -> MDB_dbi -> ByteString -> IO P.Val
+loadPin :: MDB_txn -> MDB_dbi -> ByteString -> IO Pln
 loadPin txn pinCushion = loop []
   where
     loop stack pinHashBS = getKey txn pinCushion pinHashBS >>= \case
@@ -266,7 +267,7 @@ loadPin txn pinCushion = loop []
 
 -- Given a bytestring representing a serialized rep of a noun, load
 -- dependencies from the pincushion and return the Val.
-loadNoun :: MDB_txn -> MDB_dbi -> ByteString -> ByteString -> IO P.Val
+loadNoun :: MDB_txn -> MDB_dbi -> ByteString -> ByteString -> IO Pln
 loadNoun txn pinCushion kBS vBS = do
   let (deps, bytz) = deserializeRep vBS
   refs <- forM deps (loadPin txn pinCushion)

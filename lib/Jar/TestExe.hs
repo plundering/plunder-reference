@@ -1,9 +1,12 @@
-module Main where
+{-
+    TODO: Use SmallCheck, QuickCheck, and Tasty.
+-}
+module Jar.TestExe where
 
 import ClassyPrelude
 import Jar
 import Jar.Noun
-
+import System.IO.Unsafe
 
 -- Test Values -----------------------------------------------------------------
 
@@ -41,19 +44,26 @@ isPin' =
 
 -- Tests -----------------------------------------------------------------------
 
+vCount :: IORef Int
+vCount = unsafePerformIO (newIORef 0)
+
 checkTrip :: Noun -> IO ()
 checkTrip n = do
-    print ("CHECK"::Text, n)
-    showJarBits n
+    modifyIORef' vCount succ
+    -- print n
+    -- print ("CHECK"::Text, n)
+    -- showJarBits n
     case capJarTest n of
         Left err         -> error (show err)
-        Right vl | vl==n -> putStrLn "OK"
+        Right vl | vl==n -> pure () -- putStrLn "OK"
         Right vl         -> do print n
                                print vl
                                error "NOT EQUALS"
 
 main :: IO ()
 main = do
+    putStrLn "Running `jar` tests..."
+
     checkTrip 8
     checkTrip isPin'
     checkTrip isPin
@@ -72,3 +82,6 @@ main = do
                   % (5 % c % d)
                   % ((2%i) % b % (i%i))
                   )
+
+    count <- readIORef vCount
+    putStrLn ("OK!\n" <> tshow count <> " tests passed.")

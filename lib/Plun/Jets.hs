@@ -29,16 +29,16 @@ import qualified Data.Text       as T
 import qualified Data.Vector     as V
 import qualified Natty           as Natty
 
-getRow :: Val -> Maybe (Vector Val)
-getRow (VAL _ (DAT (ROW xs))) = Just xs
+getRow :: Pln -> Maybe (Vector Pln)
+getRow (PLN _ (DAT (ROW xs))) = Just xs
 getRow _                      = Nothing
 
-getByte :: Val -> Maybe Word8
-getByte (VAL _ (NAT n)) | n<256 = Just (fromIntegral n)
-getByte _                       = Nothing
+getByte :: Pln -> Maybe Word8
+getByte (AT n) | n<256 = Just (fromIntegral n)
+getByte _              = Nothing
 
 -- Application overwrites this on startup.
-vShowPlun :: IORef (Val -> IO Text)
+vShowPlun :: IORef (Pln -> IO Text)
 vShowPlun = unsafePerformIO $ newIORef $ \v -> pure "[PLUN]"
 
 -- w32 helpers
@@ -51,7 +51,7 @@ _w32max = bex32 - 1
 w32 :: Nat -> Word32
 w32 x = fromIntegral (x `mod` bex32)
 
-data UserError = UserError Val
+data UserError = UserError Pln
   deriving (Exception)
 
 instance Show UserError where
@@ -60,7 +60,7 @@ instance Show UserError where
     o <- s e
     pure $ "DIE called with:\n\n" <> (unpack $ dent "   " o)
 
-table :: [(Text, (Val -> [Val] -> Val), ByteString)]
+table :: [(Text, (Pln -> [Pln] -> Pln), ByteString)]
 table =
   [("add"      ,addJet      ,xx "DmQSboknWfMEi5VSrqzM5AkXNcmEJAagtGum48t9D5yY")
   ,("sub"      ,subJet      ,xx "B6MvfHoH5QAQRCkFB3aF2GkmWZY5FssjmKV4VmDyEHjY")
@@ -86,11 +86,6 @@ table =
   ,("barWeld"  ,bWeldJet    ,xx "AmySpbLnjrYBuaJMa3GUuLaJnQpE8q2k1oEh4ydYUm6d")
   ,("barConcat",bConcatJet  ,xx "4gaKDafLabpgQEn7M9huYPkwVcVaqPCrunACQ46umVwP")
 
-  ,("match"    ,matchJet    ,xx "GwJcH8YmQmfaxQsHWSKrSwqBAAg7yWMAp7sh9DNMEgoj")
-  ,("switch"   ,switchJet   ,xx "BLHTrnJKtjRzo8kRt6uKyqJxuhvo8r1yA79b89Ym5zyk")
-  ,("tabMatch" ,tabMatchJet ,xx "HtrnFAfmnPNN4bT41jyrYurXFzu324W9ksajGVFjjix6")
-  ,("tabSwitch",tabSwitchJet,xx "6xUzS8pYvCVCovVYynB9S6BbXzs2yRXKTiWoAo3VKdnR")
-  ,("tabIdx"   ,tabIdxJet   ,xx "77Qm6Kx19pkvFjwfHni3iMHLYw3FUFNyZJZKJ1kL6qPG")
   ,("add32"    ,add32Jet    ,xx "HZ4jJ3MzmHSf4QmH1Razq2WoyangLiSMLx3CY1WGB4M9")
   ,("sub32"    ,sub32Jet    ,xx "BFrP5zH9gHEksWuHP5DHPCCoNxFcxwVcqcCAoGnG2DCZ")
   ,("mul32"    ,mul32Jet    ,xx "F86MN69Za5o6PEnEW5HQphW6kUPQSPfecifofn2Lab39")
@@ -107,12 +102,6 @@ table =
   ,("implode"  ,implodeJet  ,xx "BDRLL79BC9ZpfnZoPrJdCFPupLuMHZawTC8yz6SqRgWN")
   ]
  where
-  matchJet     k xs = orExec k xs Nothing
-  switchJet    k xs = orExec k xs Nothing
-  tabMatchJet  k xs = orExec k xs Nothing
-  tabSwitchJet k xs = orExec k xs Nothing
-  tabIdxJet    k xs = orExec k xs Nothing
-
   concatJet k v@[x] = orExec k v do
       vs <- getRow x
       xs <- for vs getRow
@@ -126,7 +115,7 @@ table =
   implodeJet k v@[x] = orExec k v $ do
       vs <- getRow x
       bs <- for vs \case
-          (VAL _ (NAT n)) | n>0 && n<256 -> Just (fromIntegral n)
+          (PLN _ (NAT n)) | n>0 && n<256 -> Just (fromIntegral n)
           _                              -> Nothing
       pure $ AT $ Natty.bytesNat $ pack $ toList bs
 
@@ -135,7 +124,7 @@ table =
 
   orExec core _  (Just x) = x
   orExec core xs Nothing  = case core of
-      VAL _ (LAW l) -> lawExec l (core:xs)
+      PLN _ (LAW l) -> lawExec l (core:xs)
       _             -> foldl' (%%) core xs
 
   orExecTrace _ core xs res = orExec core xs res
@@ -148,7 +137,7 @@ table =
   -- careful about overflow (input bigger than INTMAX is possible).
   -- Thus we compare to the length manually, knowing that a vector of
   -- size>INTMAX is impossible. (TODO True on all archs?)
-  vidx :: Nat -> Vector Val -> Val
+  vidx :: Nat -> Vector Pln -> Pln
   vidx ind vec =
       let siz = fromIntegral (length vec)
       in if (ind >= siz)
@@ -164,68 +153,68 @@ table =
 
   vweldJet k v@[x,y] = orExec k v (vweld <$> getRow x <*> getRow y)
     where
-      vweld :: Vector Val -> Vector Val -> Val
-      vweld x y = VAL 1 $ DAT $ ROW (x ++ y)
+      vweld :: Vector Pln -> Vector Pln -> Pln
+      vweld x y = PLN 1 $ DAT $ ROW (x ++ y)
 
   vmapJet k v@[x,y] = orExec k v (vmap x <$> getRow y)
     where
-      vmap :: Val -> Vector Val -> Val
-      vmap fun vec = VAL 1 $ DAT $ ROW $ fmap (fun %%) vec
+      vmap :: Pln -> Vector Pln -> Pln
+      vmap fun vec = PLN 1 $ DAT $ ROW $ fmap (fun %%) vec
 
   -- TODO: vfind
 
   vputJet k v@[x,y,z] = orExec k v (vput (toNat y) z <$> getRow x)
     where
-      vput :: Nat -> Val -> Vector Val -> Val
+      vput :: Nat -> Pln -> Vector Pln -> Pln
       vput ind val vec =
         let siz = fromIntegral (length vec)
-        in VAL 1 $ DAT $ ROW $ if (ind >= siz)
+        in PLN 1 $ DAT $ ROW $ if (ind >= siz)
            then vec
            else vec // [(fromIntegral ind, val)]
 
   vtakeJet k v@[x,y] = orExec k v (vtake (toNat x) <$> getRow y)
     where
-      vtake :: Nat -> Vector Val -> Val
+      vtake :: Nat -> Vector Pln -> Pln
       vtake n vec =
         let siz = fromIntegral (length vec)
-        in VAL 1 $ DAT $ ROW $ if (n >= siz)
+        in PLN 1 $ DAT $ ROW $ if (n >= siz)
            then vec
            else V.take (fromIntegral n) vec
 
   vdropJet k v@[x,y] = orExec k v (vdrop (toNat x) <$> getRow y)
     where
-      vdrop :: Nat -> Vector Val -> Val
+      vdrop :: Nat -> Vector Pln -> Pln
       vdrop n vec =
         let siz = fromIntegral (length vec)
-        in VAL 1 $ DAT $ ROW $ if (n >= siz)
+        in PLN 1 $ DAT $ ROW $ if (n >= siz)
            then V.empty
            else V.drop (fromIntegral n) vec
 
   -- TODO: =VCHUNKS
 
-  getBar (VAL _ (DAT (BAR b))) = Just b
+  getBar (PLN _ (DAT (BAR b))) = Just b
   getBar _                     = Nothing
 
   bIdxJet k v@[x,y] = orExec k v (bidx (toNat x) <$> getBar y)
     where
-      bidx :: Nat -> ByteString -> Val
+      bidx :: Nat -> ByteString -> Pln
       bidx n bs =
         let siz = fromIntegral (length bs)
         in AT $ if (n >= siz)
                 then 0
                 else fromIntegral $ BS.index bs $ fromIntegral n
 
-  bConcatJet :: Val -> [Val] -> Val
+  bConcatJet :: Pln -> [Pln] -> Pln
   bConcatJet k v@[x] =
       orExecTrace "BCONCAT" k v $ do
           vs <- getRow x
           bs <- traverse getBar vs
           pure $ mkBar $ concat bs
 
-  bWeldJet :: Val -> [Val] -> Val
+  bWeldJet :: Pln -> [Pln] -> Pln
   bWeldJet k v@[x,y] = orExecTrace "BWELD" k v (bweld <$> getBar x <*> getBar y)
     where
-      bweld :: ByteString -> ByteString -> Val
+      bweld :: ByteString -> ByteString -> Pln
       bweld x y = mkBar (x <> y)
 
   dieJet _ [x] = unsafePerformIO $ do
@@ -271,7 +260,7 @@ jetMatch :: Pin -> Pin
 jetMatch b@(P _ref _blob haz _exe core) = unsafePerformIO $ do
     let hashText = encodeBtc haz
     let name = case core of
-                 VAL _ (LAW l) -> lawNameText $ lawName l
+                 PLN _ (LAW l) -> lawNameText $ lawName l
                  _             -> ""
     if not (member name allJetNames)
     then pure b
@@ -292,7 +281,7 @@ jetMatch b@(P _ref _blob haz _exe core) = unsafePerformIO $ do
                 -- yellowOut (name <> " matched")
                 pure $ b { pinExec = exe core }
 
-jetsByHash :: Map ByteString (Text, (Val -> [Val] -> Val))
+jetsByHash :: Map ByteString (Text, (Pln -> [Pln] -> Pln))
 jetsByHash = mapFromList (table <&> \(n,f,h) -> (h,(n,f)))
 
 allJetNames :: Set Text

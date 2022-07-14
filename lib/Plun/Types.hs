@@ -2,7 +2,7 @@
 {-# OPTIONS_GHC -Werror #-}
 
 module Plun.Types
-    ( Val(..)
+    ( Pln(..)
     , Nod(..)
     , Nat
     , Pin(..)
@@ -21,15 +21,20 @@ module Plun.Types
     , isPin
     , LawName(..)
     , valName
+    , valTag
     )
 where
 
-import PlunderPrelude hiding (fromList, hash)
+import PlunderPrelude hiding (hash)
 
 import Data.Bits     (xor)
 import Data.Char     (isAlphaNum)
 import Data.Hashable (hash)
 import GHC.Prim      (reallyUnsafePtrEquality#)
+import Data.Map (toAscList)
+
+import qualified Data.Set as S
+import qualified Data.ByteString as BS
 
 -- Types -----------------------------------------------------------------------
 
@@ -40,12 +45,15 @@ import GHC.Prim      (reallyUnsafePtrEquality#)
 data Law = L
     { lawName :: !LawName
     , lawArgs :: !Nat
-    , lawBody :: !Val
-    , lawExec :: [Val] -> Val
+    , lawBody :: !Pln
+    , lawExec :: [Pln] -> Pln
     }
 
 newtype LawName = LN { lawNameNat :: Nat }
-  deriving newtype (Eq, Ord, Show, NFData, Hashable)
+  deriving newtype (Eq, Ord, NFData, Hashable)
+
+instance Show LawName where
+    show = either show show . natUtf8 . lawNameNat
 
 instance Show Law where
     show L{..} = "{"
@@ -69,8 +77,8 @@ data Pin = P
     { pinRefs :: Vector Pin
     , pinBlob :: ByteString
     , pinHash :: ByteString
-    , pinExec :: [Val] -> Val
-    , pinItem :: !Val
+    , pinExec :: [Pln] -> Pln
+    , pinItem :: !Pln
     }
 
 instance Show Pin where
@@ -95,7 +103,7 @@ instance NFData Pin where rnf = \P{} -> ()
     We don't want to do this on every single value equality check,
     though.  It's expensive.
 -}
-fastValEq :: Val -> Val -> Bool
+fastValEq :: Pln -> Pln -> Bool
 fastValEq x y =
     case reallyUnsafePtrEquality# x y of
         1# -> True
@@ -109,8 +117,8 @@ fastValEq x y =
 --      | barNat | bar bex|128 bex|128
 --      ```
 data Dat
-    = ROW !(Vector Val)
-    | TAB !(Map Nat Val)
+    = ROW !(Vector Pln)
+    | TAB !(Map Nat Pln)
     | BAR !ByteString
     | COW !Nat       --  Construct Row
     | CAB !(Set Nat) --  Construct Tab
@@ -125,28 +133,60 @@ instance Show Dat where
 
 data Nod
     = NAT !Nat
-    | APP Nod Val
+    | APP Nod Pln
     | LAW !Law
     | DAT !Dat
     | PIN !Pin
   deriving (Eq,  Generic, NFData)
 
-data Val = VAL
+-- | A Plunder value.
+data Pln = PLN
     { valArity :: !Nat
     , valNod   :: !Nod
     }
   deriving (Eq, Generic, NFData)
 
-valName :: Val -> Text
-valName (VAL _ (LAW L{..})) =
+instance Ord Pln where
+    compare (AT x) (AT y) = compare x y
+    compare (PN x) (PN y) = compare (pinHash x) (pinHash y)
+    compare AT{}   _      = GT
+    compare _      AT{}   = LT
+    compare x      y      = compare (pCar x, pCdr x) (pCar y, pCdr y)
+
+pCar :: Pln -> Pln
+pCar (PLN r n) = case n of
+    NAT{}     -> AT 0
+    APP x _   -> PLN (r+1) x
+    LAW L{..} -> law lawName lawArgs lawBody
+    DAT d     -> dataWut law (\h _ -> h) d
+    PIN{}     -> AT 4
+  where
+    law nm ar _ = PLN 1 (NAT 0 `APP` AT (lawNameNat nm)
+                               `APP` AT ar)
+
+pCdr :: Pln -> Pln
+pCdr (PLN r n) = case n of
+    NAT{}      -> AT 0
+    APP x _    -> PLN (r+1) x
+    LAW L{..}  -> law lawName lawArgs lawBody
+    DAT d      -> dataWut law (\_ t -> t) d
+    PIN(P{..}) -> pinItem
+  where
+    law _ _  b = b
+
+valName :: Pln -> Text
+valName (PLN _ (LAW L{..})) =
     let nat = lawNameNat lawName
     in either (const $ tshow nat) id (natUtf8 nat)
-
-valName (VAL _ (PIN(P{..}))) =
+valName (PLN _ (PIN(P{..}))) =
     valName pinItem
-
 valName _ =
     "_"
+
+valTag :: Pln -> Nat
+valTag (PLN _ (LAW L{..}))  = lawNameNat lawName
+valTag (PLN _ (PIN(P{..}))) = valTag pinItem
+valTag _                    = 0
 
 instance Show Nod where
     show (NAT n)   = show n
@@ -155,12 +195,24 @@ instance Show Nod where
     show (PIN p)   = "[" <> unpack (valName $ pinItem p) <> "]"
     show (DAT d)   = show d
 
-unApp :: Nod -> [Val] -> [Val]
+unApp :: Nod -> [Pln] -> [Pln]
 unApp (APP f x) xs = unApp f (x:xs)
 unApp f         xs = (nodVal f):xs
 
-instance Show Val where
-    show (VAL _ n) = show n
+instance Show Pln where
+    show (PLN _ n) = show n
+
+instance Num Pln where
+    fromInteger n = AT (fromIntegral n)
+    x+y           = AT (toNat x + toNat y)
+    x*y           = AT (toNat x * toNat y)
+    abs x         = x
+    negate _      = AT 0
+    signum x      = case toNat x of { 0->AT 0; _->AT 1 }
+
+toNat :: Pln -> Nat
+toNat (PLN _ (NAT n)) = n
+toNat (PLN _ _      ) = 0
 
 hashMix :: Int -> Int -> Int
 hashMix h1 h2 = (h1 * 16777619) `xor` h2
@@ -187,19 +239,19 @@ instance Hashable Nod where
     hashWithSalt salt x =
         salt `hashMix` hash x
 
-instance Hashable Val where
-    hash (VAL _ nod) = hash nod
-    hashWithSalt salt (VAL _ nod) = hashWithSalt salt nod
+instance Hashable Pln where
+    hash (PLN _ nod) = hash nod
+    hashWithSalt salt (PLN _ nod) = hashWithSalt salt nod
 
 
 -- Utilities -------------------------------------------------------------------
 
-isPin :: Val -> Bool
-isPin (VAL _ (PIN{})) = True
-isPin (VAL _ _)       = False
+isPin :: Pln -> Bool
+isPin (PLN _ (PIN{})) = True
+isPin (PLN _ _)       = False
 
-nodVal :: Nod -> Val
-nodVal n = VAL (evalArity n) n
+nodVal :: Nod -> Pln
+nodVal n = PLN (evalArity n) n
 
 lawNameText :: LawName -> Text
 lawNameText (LN 0) = "_"
@@ -223,12 +275,12 @@ lawNameText (LN n) =
 --
 -- Thus, to get the true arity, we need to actually do the scan and see
 -- what's at the head.
-trueArity :: Val -> Nat
+trueArity :: Pln -> Nat
 trueArity = \case
-    VAL _ (DAT (COW n)) -> go (DAT (COW n))
-    VAL _ (DAT (CAB n)) -> go (DAT (CAB n))
-    VAL _ (APP f _)     -> go f - 1
-    VAL r _             -> r
+    PLN _ (DAT (COW n)) -> go (DAT (COW n))
+    PLN _ (DAT (CAB n)) -> go (DAT (CAB n))
+    PLN _ (APP f _)     -> go f - 1
+    PLN r _             -> r
   where
     go = \case
         DAT (COW n) -> succ $ fromIntegral n
@@ -259,21 +311,66 @@ evalArity (DAT d)   = djArgs d
     djArgs (TAB _)          = 1
     djArgs (BAR _)          = 1
 
-pattern AT :: Nat -> Val
-pattern AT n <- VAL _ (NAT n)
+pattern AT :: Nat -> Pln
+pattern AT n <- PLN _ (NAT n)
   where AT n = nodVal (NAT n)
 
-pattern CL :: Val -> Val -> Val
-pattern CL x y <- VAL _ (APP (nodVal -> x) y)
+pattern PN :: Pin -> Pln
+pattern PN n <- PLN _ (PIN n)
+  where PN p = nodVal (PIN p)
+
+pattern CL :: Pln -> Pln -> Pln
+pattern CL x y <- PLN _ (APP (nodVal -> x) y)
   where CL x y = nodVal (APP (valNod x) y)
 
-pattern RL :: Law -> Val
-pattern RL r <- VAL _ (LAW r)
+pattern RL :: Law -> Pln
+pattern RL r <- PLN _ (LAW r)
   where RL r = nodVal (LAW r)
 
-pattern (:&) :: Nod -> Val -> Nod
+pattern (:&) :: Nod -> Pln -> Nod
 pattern (:&) x y = APP x y
 
-pattern (:#) :: Nod -> Val -> Val
-pattern (:#) x y <- VAL _ (APP x y)
+pattern (:#) :: Nod -> Pln -> Pln
+pattern (:#) x y <- PLN _ (APP x y)
   where (:#) x y = nodVal (APP x y)
+
+--------------------------------------------------------------------------------
+
+barBody :: ByteString -> Nat
+barBody bytes =
+    -- TODO Make this not slow
+    bytesNat (bytes <> BS.singleton 1)
+
+-- TODO Carefully review!
+dataWut
+    :: ∀a
+     . (LawName -> Nat -> Pln -> a)
+    -> (Pln -> Pln -> a)
+    -> Dat
+    -> a
+dataWut rul cel = \case
+    ROW v -> case toList v of
+                    []   -> rul (LN 0) 1 (AT 0)
+                    x:xs -> apple (DAT $ COW sz) (x :| xs)
+               where sz = fromIntegral (length v)
+    TAB d -> tabWut d
+    BAR b -> rul (LN 1) 1 (AT $ barBody b)
+    COW n -> rul (LN 0) (n+1) (AT 0)
+    CAB k -> cabWut k
+  where
+    apple :: Nod -> NonEmpty Pln -> a
+    apple n (x :| [])     = cel (nodVal n) x
+    apple n (v :| (x:xs)) = apple (APP n v) (x :| xs)
+
+    tabWut :: Map Nat Pln -> a
+    tabWut tab = case val of
+                    []   -> cabWut mempty
+                    v:vs -> apple (DAT $ CAB key) (v :| vs)
+      where par = toAscList tab
+            key = setFromList (fst <$> par)
+            val = snd <$> par
+
+    cabWut :: Set Nat -> a
+    cabWut ks = rul (LN 0) nArgs (nodVal $ DAT $ ROW $ AT <$> k)
+      where nArgs = fromIntegral (length k+1)
+            k     = fromList (S.toAscList ks)

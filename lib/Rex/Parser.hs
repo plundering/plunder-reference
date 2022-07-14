@@ -170,12 +170,14 @@ closeOut p _ (i:is)  | p >= fst i = pure (i:is)
 closeOut p f (i:j:k)              = do ij <- merge i j
                                        closeOut p f (ij:k)
 closeOut p f [i]                  = Left $ unlines
-    [ "First item in file:\n"
-    , dent $ rexFile $ toRex (snd i)
-    , "Indented more than fragment:\n"
-    , dent $ rexFile $ toRex f
-    , dent ("(which is at position " <> tshow p <> ")")
-    ]
+    let ?rexColors = NoColors
+    in
+        [ "First item in file:\n"
+        , dent $ rexFile $ toRex (snd i)
+        , "Indented more than fragment:\n"
+        , dent $ rexFile $ toRex f
+        , dent ("(which is at position " <> tshow p <> ")")
+        ]
 
 {-
   Pushes a fragment onto the item stack.

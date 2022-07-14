@@ -6,7 +6,7 @@
 module Plun.Eval
     ( EvalSt(..)
     , state
-    , Val(..)
+    , Pln(..)
     , (%%)
     , toNat
     , cryptographicIdentity
@@ -60,7 +60,7 @@ loadPin hazh = liftIO $ do
 overBook :: (Map ByteString Pin -> Map ByteString Pin) -> EvalSt -> EvalSt
 overBook f s = s { stBook = f (stBook s) }
 
-mkLaw :: LawName -> Nat -> Val -> Val
+mkLaw :: LawName -> Nat -> Pln -> Pln
 mkLaw nam arg (force -> bod) =
     if arg==0 then AT 0 else
     fromMaybe law $ fmap (nodVal . DAT)
@@ -84,10 +84,10 @@ cryptographicIdentity refs jamBody =
     digestBytes :: B3.Digest 32 -> ByteString
     digestBytes d = BA.copyAndFreeze d (const $ pure ())
 
-mkPin :: Val -> Val
+mkPin :: Pln -> Pln
 mkPin = nodVal . PIN . unsafePerformIO . mkPin'
 
-mkPin' :: MonadIO m => Val -> m Pin
+mkPin' :: MonadIO m => Pln -> m Pin
 mkPin' inp = do
     -- let putNam tx = putStrLn ("\n\n==== [[[" <> tx <> "]]] ====\n")
     -- putNam (valName inp)
@@ -109,7 +109,7 @@ mkPin' inp = do
 
     let haz = cryptographicIdentity ref byt
         exe = case core of
-                VAL _ (LAW l) -> \xs -> lawExec l (core:xs)
+                PLN _ (LAW l) -> \xs -> lawExec l (core:xs)
                 v             -> foldl' (%%) v
         res = stFast (P ref byt haz exe core)
 
@@ -155,11 +155,11 @@ mkPin' inp = do
 
 infixl 5 %%;
 
-(%%) :: Val -> Val -> Val
-(%%) (VAL 1 f) x = eval f [x]
-(%%) (VAL n f) x = VAL (n-1) (APP f x)
+(%%) :: Pln -> Pln -> Pln
+(%%) (PLN 1 f) x = eval f [x]
+(%%) (PLN n f) x = PLN (n-1) (APP f x)
 
-eval :: Nod -> [Val] -> Val
+eval :: Nod -> [Pln] -> Pln
 eval nod args = case nod of
     APP pf px -> eval pf (px:args)
     NAT n     -> execNat n args
@@ -167,7 +167,7 @@ eval nod args = case nod of
     PIN g     -> pinExec g args
     DAT dj    -> evalData args dj
 
-execNat :: Nat -> [Val] -> Val
+execNat :: Nat -> [Pln] -> Pln
 execNat 0 [n,a,b]     = mkLaw (LN $ toNat n) (toNat a) b
 execNat 1 [p,l,a,n,x] = wut p l a n x
 execNat 2 [z,p,x]     = case toNat x of { 0 -> z; n -> p %% AT(n-1) }
@@ -175,27 +175,27 @@ execNat 3 [x]         = AT (toNat x + 1)
 execNat 4 [v]         = mkPin v
 execNat _ _           = AT 0
 
-toNat :: Val -> Nat
-toNat (VAL _ (NAT n)) = n
-toNat (VAL _ _      ) = 0
+toNat :: Pln -> Nat
+toNat (PLN _ (NAT n)) = n
+toNat (PLN _ _      ) = 0
 
-wut :: Val -> Val -> Val -> Val -> Val -> Val
-wut p l a n (VAL args nod) = case nod of
+wut :: Pln -> Pln -> Pln -> Pln -> Pln -> Pln
+wut p l a n (PLN args nod) = case nod of
     PIN P{..} -> p %% pinItem
     LAW L{..} -> l %% AT (lawNameNat lawName) %% AT lawArgs %% lawBody
-    APP f x   -> a %% (VAL (args+1) f) %% x
+    APP f x   -> a %% (PLN (args+1) f) %% x
     NAT{}     -> n
     DAT dj    -> dataWut goLaw goApp dj
       where
         goApp x y      = a %% x %% y
         goLaw nm ar bd = l %% AT (coerce nm) %% AT ar %% bd
 
-valLawBody :: Val -> Val
+valLawBody :: Pln -> Pln
 valLawBody = \case
-    VAL _ (LAW(L{..})) -> lawBody
-    VAL _ (PIN(P{..})) -> valLawBody pinItem
-    VAL _ (DAT dj)     -> dataWut (\_ _ b -> b) (\_ _ -> AT 0) dj
-    VAL _ _            -> AT 0
+    PLN _ (LAW(L{..})) -> lawBody
+    PLN _ (PIN(P{..})) -> valLawBody pinItem
+    PLN _ (DAT dj)     -> dataWut (\_ _ b -> b) (\_ _ -> AT 0) dj
+    PLN _ _            -> AT 0
 
 data Prog = PROG
     { arity :: !Int
@@ -206,7 +206,7 @@ data Prog = PROG
 
 data Run
     = LOG !Text !Run
-    | CNS !Val
+    | CNS !Pln
     | REF !Int
     | KAL !Run !Run
     | LET !Int !Run !Run
@@ -214,7 +214,7 @@ data Run
 
 -- We don't have to care about overflow when converting to `Int`.
 -- If the arity is that big, this will never be run.
-compileLaw :: LawName -> Nat -> Val -> Prog
+compileLaw :: LawName -> Nat -> Pln -> Prog
 compileLaw =
     \_n a b ->
         let (maxArg, code) = go a b
@@ -222,7 +222,7 @@ compileLaw =
                 (fromIntegral maxArg + 1)
                 code
   where
-    go :: Nat -> Val -> (Nat, Run)
+    go :: Nat -> Pln -> (Nat, Run)
     go maxArg = \case
         AT n | n<=maxArg -> (,) maxArg (REF $ fromIntegral n)
         NAT 0 :& f :# x  -> (,) (max fMax xMax) (KAL fRun xRun)
@@ -235,7 +235,7 @@ compileLaw =
         NAT 2 :# x       -> (maxArg, CNS x)
         x                -> (maxArg, CNS x)
 
-executeLaw :: Prog -> [Val] -> Val
+executeLaw :: Prog -> [Pln] -> Pln
 executeLaw PROG{stkSz,prgrm} args =
     unsafePerformIO $ do
         stk <- newSmallArray stkSz (error "impossible")
@@ -257,8 +257,8 @@ executeLaw PROG{stkSz,prgrm} args =
 
 -- Jar for Vals ----------------------------------------------------------------
 
-instance Nounable Val where
-    type NounRef Val = Pin
+instance Nounable Pln where
+    type NounRef Pln = Pin
     mkCell = (%%)
     mkAtom = nodVal . NAT
     mkRefr = nodVal . PIN

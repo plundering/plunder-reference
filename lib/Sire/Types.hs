@@ -1,262 +1,93 @@
 {-# OPTIONS_GHC -Wall   #-}
 {-# OPTIONS_GHC -Werror #-}
 
+{-|
+    Types for Sire syntax trees (`Cmd`, `Exp`, etc).  "Sire.Syntax"
+    parses `Rex` into concrete syntax trees, and "Sire.ReplExe"
+    does... everything else (TODO)
+-}
 module Sire.Types
-    ( XTag(..)
-    , Tag(..)
+    ( Symb
     , Cmd(..)
-    , Rul(..)
     , Fun(..)
-    , Bod(..)
     , Exp(..)
-    , Val(..)
-    , XCmd(..)
-    , XLaw(..)
-    , XBod(..)
-    , XExp(..)
-    , XFun(..)
-    , XVal(..)
-    , LawName(..)
-    , Word256
+    , XCmd
+    , XExp
+    , XFun
+    , Pln
+    , Defn(..)
     )
 where
 
 import PlunderPrelude
 
-import Plun.Types (LawName(..))
-import Rex        (GRex)
-
-----------------------------------------
--- Identifier with Explicit Tag Value --
-----------------------------------------
-
-data Tag = TAG
-  { tagIdn :: !Text
-  , tagNam :: !LawName
-  }
- deriving (Eq, Ord, Show, Generic, NFData)
-
-------------
--- Values --
-------------
-
-data Val a
-    = REF a
-    | NAT Nat
-    | APP (Val a) (Val a)
-    | LAW LawName Nat (Bod a)
-    | ROW (Vector (Val a))
-    | COW Nat
-    | TAB (Map Nat (Val a))
-    | CAB (Set Nat)
-    | BAR ByteString
-  deriving (Eq, Ord, Show, Functor, Foldable, Traversable, Generic, NFData)
-
-instance Num (Val a) where
-    fromInteger = NAT . fromInteger
-    (+)    = error "HACK"
-    (*)    = error "HACK"
-    abs    = error "HACK"
-    signum = error "HACK"
-    negate = error "HACK"
-
-data XVal
-    = XVREF Text
-    | XVNAT Nat
-    | XVAPP XVal XVal
-    | XVLAW XLaw
-    | XVROW (Vector XVal)
-    | XVCOW Nat
-    | XVTAB (Map Nat XVal)
-    | XVCAB (Set Nat)
-    | XVBAR ByteString
- deriving (Show, Generic, NFData)
-
------------
--- Rules --
------------
-
-data Rul a = RUL
-  { rulName :: LawName
-  , rulArgs :: Nat
-  , rulBody :: Bod a
-  }
- deriving (Eq, Ord, Show, Functor, Foldable, Traversable, Generic, NFData)
-
-data XLaw = XLAW XTag [Text] XBod
- deriving (Show, Generic, NFData)
-
-data XBod
-  = XVAR Text
-  | XCNS XVal
-  | XAPP XBod XBod
-  | XBAD XVal
-  | XLET Text XBod XBod
- deriving (Show, Generic, NFData)
+import Loot.Types (Symb)
+import Plun       (Pln, LawName)
+import Rex        (Rex)
 
 ---------------
 -- Functions --
 ---------------
 
-{-
-    - `a`      -> XTAG "a" NONE       NONE
-    - `a^32`   -> XTAG "a" NONE       (SOME 32)
-    - `a/1`    -> XTAG "a" (SOME "1") NONE
-    - `a/1^32` -> XTAG "a" (SOME "1") (SOME 32)
-    - `_`      -> XTAG ""  NONE       NONE
-    - `_^32`   -> XTAG ""  NONE       (SOME 32)
-    - `_/1`    -> XTAG ""  (SOME "1") NONE
-    - `_/1^32` -> XTAG ""  (SOME "1") (SOME 32)
+type XFun = Fun Pln Symb Symb
+type XExp = Exp Pln Symb Symb
+type XCmd = Cmd Pln Symb Symb
+
+{-|
+    A Sire function has an identifier for self-reference, a `LawName,
+    a non-empty list of arguments, and an body expression.
+
+    Note that when a function is bound (say with
+    @(`ELET` v (`ELAM` (`FUN` w _ _ _)) _)@), there are two binders
+    for the same function (@v@ and @w@).  @v@ is the binder used in the
+    outside scope, and @w@ is use for self-references.  The difference
+    doesn't matter during parsing, but it matters in code transformations.
 -}
-data XTag = XTAG !Text !(Maybe Text) !(Maybe LawName)
- deriving (Eq, Ord, Show, Generic, NFData)
-
-data XFun z = XFUN XTag [Text] (XExp z)
- deriving (Eq, Ord, Show, Generic, NFData, Functor, Foldable, Traversable)
-
-data XExp z
-  = XEBED z
-  | XEREF Text
-  | XEHAZ Word256
-  | XENAT Nat
-  | XEBAR ByteString
-  | XEAPP (XExp z) (XExp z)
-  | XEREC Text (XExp z) (XExp z)
-  | XELET Text (XExp z) (XExp z)
-  | XEVEC [XExp z]
-  | XECOW Nat
-  | XECAB (Set Nat)
-  | XETAB (Map Nat (XExp z))
-  | XELAM (XFun z)
-  | XELIN (NonEmpty (XExp z))
- deriving (Eq, Ord, Show, Generic, NFData, Functor, Foldable, Traversable)
-
---- ?-  xs
---- ++  0,n
---- ++  1,n,t
----
---- ?+  xs
----   fallback
---- ++  0,n    |
---- ++  1,n,t  |
----
---- ?- expands to ?+
----
---- ?+ expands to `R_IDX` or `T_IDX` depending on whether keys work as
----    vector indexes or nah.
----
---- Each `[++ [, n xs..] b]` branch expands into `[* [, _ xs..] b]`
----
---- @- and @+ are atomic version of `?-` and `?+`.
----
----     @-  c
----     ++  0   %zero
----     ++  %a  %aye
----     ++  %z  %zee
----
----     @+  c
----       %other
----     ++  0   %zero
----     ++  %a  %aye
----     ++  %z  %zee
----
---- Again, just implemented as R_IDX or T_IDX.
----
---- The final boss is `|%`: Full LETREC.
----
----     |%
----     ++  [odd n]   @-  n
----                   ++  0  | false
----                   ++  _  | odd | dec n
----                   ==
----     ++  [even n]  @-  n
----                   ++  0  | true
----                   ++  _  | odd | dec n
----                   ==
----     ++  zeroOne | {0 oneZero}
----     ++  oneZero | {1 zeroOne}
----     ++  true    | oneZero
----     ++  false   | zeroOne
----     ==
----
---- Maybe we can approach that gradually, allowing values-only LETREC,
---- where the non-cyclic elements get spit off, as do the smallest cycles?
-
--- FUN self tag argIdns expr
-data Fun z v a = FUN v LawName [v] (Exp z v a)
+data Fun z v a = FUN v LawName (NonEmpty v) (Exp z v a)
  deriving (Eq, Ord, Show, Functor, Foldable, Traversable, Generic, NFData)
 
-type Word256 = ByteString -- Always 256 bytes
+{-| Sire Expressions. @z@ is the type of raw embedded Plunder values
+    (created through macro-expansion), @v@ is the type of local variables,
+    and @a@ is the type of free variables.
 
-data Bod a
-  = BVAR Nat
-  | BCNS (Val a)
-  | BAPP (Bod a) (Bod a)
-  | BLET (Bod a) (Bod a)
-  | BBAD (Val a)
- deriving (Eq, Ord, Show, Functor, Foldable, Traversable, Generic, NFData)
-
+    The parser just treats all references as free variables.  Later on,
+    name resolution splits them apart.
+-}
 data Exp z v a
-  = EBED z
-  | EREF a
-  | EHAZ Word256
-  | EVAR v
-  | ENAT Nat
-  | EBAR ByteString
-  | EAPP (Exp z v a) (Exp z v a)
-  | EREC v (Exp z v a) (Exp z v a)
-  | ELET v (Exp z v a) (Exp z v a)
-  | EVEC [Exp z v a]
-  | ECOW Nat
-  | ETAB (Map Nat (Exp z v a))
-  | ECAB (Set Nat)
-  | ELAM (Fun z v a)
-  | ELIN (NonEmpty (Exp z v a))
+  = EBED z                          -- ^ An embedded plunder value
+  | EREF a                          -- ^ A free variable.
+  | EVAR v                          -- ^ A bound variable.
+  | ENAT Nat                        -- ^ A natural-number literal.
+  | EBAR ByteString                 -- ^ A bytestring literal (TODO: Macroify)
+  | EAPP (Exp z v a) (Exp z v a)    -- ^ Function application
+  | ELET v (Exp z v a) (Exp z v a)  -- ^ Let-binding
+  | EREC v (Exp z v a) (Exp z v a)  -- ^ Self-recursive let binding.
+  | EVEC [Exp z v a]                -- ^ Row literal (TODO: Macroify)
+  | ECOW Nat                        -- ^ Row constructor (TODO: Macroify)
+  | ETAB (Map Nat (Exp z v a))      -- ^ Table literal (TODO: Macroify)
+  | ECAB (Set Nat)                  -- ^ Table constructor (TODO: Macroify)
+  | ELAM (Fun z v a)                -- ^ Nested Function (Closure)
+  | ELIN (NonEmpty (Exp z v a))     -- ^ Explicit Inline Application
  deriving (Eq, Ord, Show, Functor, Foldable, Traversable, Generic, NFData)
 
 -------------------
 -- REPL Commands --
 -------------------
 
+-- |Sire input commands.
 data Cmd z v a
-  = PRINT (Exp z v a)
-  | VOPEN [a] (Exp z v a)
-  | DUMPY (Exp z v a)
-  | CHECK [(XExp z, Exp z v a)]
-  | MKRUL a (Rul a)
-  | DEFUN [(a, Fun z v a)]
-  | ALIAS [(a, Val a)]
-  | ANOTE [GRex z] (Maybe (GRex z))
-  | SAVEV (Exp z v a)
-  | IOEFF a a (Exp z v a)
-  | MACRO a (Exp z v a)
-  | EPLOD (XExp z)
+  = PRINT (Exp z v a)           -- ^ @(e)@ Eval+print @e@
+  | DUMPY (Exp z v a)           -- ^ @(<e)@ Eval+print @e@ and it's environment.
+  | CHECK [([Rex], Exp z v a)]  -- ^ @??e@ Assert that e==1
+  | DEFINE [Defn z v a]         -- ^ @(x=y)@, @((f x)=x)@ Define value,function.
+  | SAVEV (Exp z v a)           -- ^ @(<<expr)@ Write an expression to disk.
+  | IOEFF a a (Exp z v a)       -- ^ @({i r}<-{...})@ Run effects.
+  | EPLOD XExp                  -- ^ @(#?e)@ Trace macro expansions in @e@.
  deriving (Eq, Ord, Show, Functor, Foldable, Traversable, Generic, NFData)
 
-{-
-    XPRINT: expr
-    XVOPEN: * {..} expr
-    XDUMPY: < expr
-    XCHECK: ?? expr
-    XMKRUL: x=3
-    XMKRUL: (f x)=3
-    XALIAS: x:=3
-    XDEFUN: [x]:=3
-    XDEFUN: [f x]:=3
-    XSAVEV: <<expr        (TODO Get rid of this)
-    XIOEFF: {i r}<-{...}
-    XMACRO: [#= "*" ...]  (TODO Replace with `=`)
-    XPLODE: #?(...)
--}
-data XCmd z
-  = XPRINT (XExp z)
-  | XVOPEN [Text] (XExp z)
-  | XDUMPY (XExp z)
-  | XCHECK [XExp z]
-  | XMKRUL XLaw
-  | XALIAS [(Text, XVal)]
-  | XDEFUN [XFun z]
-  | XSAVEV (XExp z)
-  | XIOEFF Text Text (XExp z)
-  | XMACRO Text (XExp z)
-  | XPLODE (XExp z)
+-- |A binder.  It's either a function (takes arguments) or a value
+-- (does not).
+data Defn z v a
+    = BIND_FUN a (Fun z v a)
+    | BIND_EXP a (Exp z v a)
+ deriving (Eq, Ord, Show, Functor, Foldable, Traversable, Generic, NFData)

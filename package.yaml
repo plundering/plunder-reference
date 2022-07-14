@@ -25,6 +25,14 @@ executables:
       - rainbow
       - bytestring
 
+  loot:
+    main: Main.hs
+    source-dirs: exe/loot
+    dependencies:
+      - plunder
+      - rainbow
+      - bytestring
+
   server:
     main: Main.hs
     source-dirs: exe/server
@@ -34,7 +42,7 @@ executables:
 
 tests:
   natty-tests:
-    source-dirs: test/natty
+    source-dirs: exe/natty-tests
     main: Main.hs
     ghc-options: "-O2 -threaded -rtsopts -with-rtsopts=-N"
     dependencies:
@@ -46,7 +54,7 @@ tests:
       - vector
 
   jar-tests:
-    source-dirs: test/jar
+    source-dirs: exe/jar-tests
     main: Main.hs
     ghc-options: "-O2 -threaded -rtsopts -with-rtsopts=-N"
     dependencies:
@@ -58,18 +66,29 @@ tests:
       - vector
 
   rex-tests:
-    source-dirs: test/rex
+    source-dirs: exe/rex-tests
+    main: Main.hs
+    dependencies:
+      - plunder
+
+  loot-tests:
+    source-dirs: exe/loot-tests
+    main: Main.hs
+    dependencies:
+      - plunder
+
+  sire-tests:
+    source-dirs: exe/sire-tests
     main: Main.hs
     dependencies:
       - plunder
 
 benchmarks:
   natty-bench:
-    source-dirs: bench/natty
+    source-dirs: exe/natty-bench
     main: Main.hs
     ghc-options: "-O2 -threaded -rtsopts -with-rtsopts=-N"
     dependencies:
-      - criterion
       - plunder
 
 dependencies:
@@ -81,6 +100,7 @@ dependencies:
 - classy-prelude
 - conduit
 - containers
+- criterion
 - deepseq
 - directory
 - ed25519
@@ -99,6 +119,7 @@ dependencies:
 - optparse-applicative
 - pretty-show
 - primitive
+- QuickCheck
 - rainbow
 - random
 - random-shuffle
@@ -107,6 +128,7 @@ dependencies:
 - stm-delay
 - tasty
 - tasty-golden
+- terminal-size
 - text
 - text-builder
 - time
@@ -120,6 +142,7 @@ default-extensions:
 - ApplicativeDo
 - BangPatterns
 - BlockArguments
+- ConstraintKinds
 - DataKinds
 - DefaultSignatures
 - DeriveAnyClass
@@ -135,6 +158,7 @@ default-extensions:
 - FunctionalDependencies
 - GADTs
 - GeneralizedNewtypeDeriving
+- ImplicitParams
 - LambdaCase
 - MagicHash
 - MultiParamTypeClasses

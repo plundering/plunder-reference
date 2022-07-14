@@ -1,2 +1,2 @@
 module Main (main) where
-import RexExe (main)
+import Rex.ReplExe (main)

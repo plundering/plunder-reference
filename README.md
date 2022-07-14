@@ -1,27 +1,216 @@
-Plunder Reference Implementation
-================================
+Plunder
+=======
 
-This is a reference-implementation for the stack of technologies needed
-to bootstrap the Plunder system.
+Plunder is a new programming model that makes it possible to have
+programs that "run forever", eliminating the need for a separate storage
+abstraction.  Processes survive hardware restarts, and can be moved
+between physical machines.
+
+Plunder is a purely-functional virtual machine in which new code can be
+introduced dynamically.  Code can construct code.  This gives long-running
+processes a way to upgrade themselves, by including their own compiler
+toolchain "in memory".
+
+This combination of these features creates a unique computing environment,
+where everything lives inside the VM.  Code inside the VM has zero
+dependency on the specifics of the host operating system.  Even the
+compiler toolchain, and development environment live within the VM.
+
+A network abstraction is also included that uses ed25519 public keys as
+endpoints.  Any object can be moved across the network, including code.
+NAT traversal, name resolution, and message transport are all built
+into the abstraction.  A BitTorrent-like system is also included so that
+larger datasets can be hosted by nodes with limited bandwidth.
+
+This lets networked services be created as simple programs.
+No dependencies, no databases, no deployments.  These services can be
+transparently hosted on residential networks.  Self-upgrading peer-to-peer
+applications can also be built easily.
+
+Processes that "run forever" are possible because evaluation is fully
+deterministic and because process state is a simple, serializable value.
+This lets Plunder use the snapshot-and-event-log approach to keep program
+state synced to disk.
+
+Services can be easily migrated between hardware.  You can run a service
+on your laptop as you develop it, and then move it to a cloud host to
+get more bandwidth temporarily.  You can later pull it from the cloud
+host, and move it onto a server running on a smartphone.  This kind of
+migration is easy, safe,  and requires no client-side changes.
+
+Most modern applications require a team of engineers, cloud hosting, and
+constant maintenance churn.  Because of this, any serious application
+requires significant investment and must eventually find some way to
+extract money from its users.  This has created a world where finance
+and corporate players have total power over all of computing.
+
+Our hope is that Plunder will make it practical for motivated individuals
+to build these types of applications themselves, resulting in a
+proliferation of networks and software systems outside of corporate
+control.  People will again control their own access to information.
+People will again be able to organize themselves and communicate
+amongst themselves, without this massive-scale corporate censorship
+and surveillance.
 
 
-Mission Statement
-=================
+This Reference Implementation
+=============================
+
+This codebase is reference-implementation for the stack of technologies
+needed to bootstrap the Plunder system.
+
+This is still work-in-progress. The virtual machine itself is fully
+working, but the persistence layer and IO system are not fully nailed
+down yet.
+
+This implementation is surprisingly capable, given it's extremely
+naive implementation.  The code here is designed to provide a clear
+demonstration of the ideas and to provide a pleasant way to play around
+with the system.  It is however, extremely slow compared to a real
+implementation.
+
+There is another, unreleased, implementation which is written in C and
+had a naive translation from Plunder laws to machine code.  That code
+has bit-rotted, but it was several orders of magnitude faster than this.
+Another several orders of magnitude should be possible with actual
+code optimization.
+
+
+### Running the System
+
+You will need to install `liblmdb` and Haskell's `stack` in order to
+build this.
+
+    $ stack install --fast
+    $ sire tests/laws.sire
+
+To understand the system you should start by reading
+[laws.sire](tests/laws.sire).  It starts by giving a brief explanation of
+all of the technologies involved, and then proceeds to bootstrap the
+whole world from scratch: from the low level formalism, it builds up
+natural number math, data structure definitions, and even the BLAKE3 hash
+function. The rest of this document will give examples using the
+environment defined in `tests/laws.sire`, explaining the why and how.
+
+
+The Plunder System
+==================
+
+Specifications can be found in [doc/](doc/), but they are presented
+formally and without much explanation.  The "Tours" in
+[laws.sire](tests/laws.sire) are much more accessible:
+
+-   [PLUNDER_SPEC.txt](doc/PLUNDER_SPEC.txt)
+-   [REX_SPEC.md](doc/REX_SPEC.md)
+-   [SIRE_SPEC.md](doc/SIRE_SPEC.md)
+-   [MACHINE_SPEC.md](doc/MACHINE_SPEC.md)
+
+This project is a stack of technologies:
+
+
+### Plunder: The Virtual Machine
+
+Plunder is a lazily evaluated graph-reduction engine built on binary
+trees of natural numbers.
+
+Plunder is extremely simple and is permanently frozen.
+
+Having a frozen model is important, because we expect Plunder programs
+to have uptime in the decades (since Plunder processes are persistent,
+they can live through hardware reboots).
+
+Plunder software written today should continue to run forever, and should
+be completely portable across all conformant implementations.
+
+Most virtual machines change over time, and all language implementations
+accrue new "primops" over time.  This approach isn't possible in Plunder
+because this type of change breaks existing code and existing processes.
+
+Instead Plunder instead uses the "Jet" concept from Urbit.
+
+For example, the `add` function in Plunder is the following value:
+
+    (4 (0 6579297 2
+        (0 (0 (4 (0 1667594341 3
+                  (0 (0 (0 (2 2) 2) (0 (0 0 1) (0 1 2))) 3))
+                 3)
+              (0 (4 (0 499848736628 1 (0 (2 0 3) 1))) 1))
+           2)))
+
+This value is pretty-printed by the `Loot` disassembler as:
+
+    (exec a b c)=(2 b (exec a a-b) c)
+    (toNat a)=(2:0:3 a)
+    (add a b)=(exec:3 toNat-a b)
+
+When this value is constructed (via evaluation of the `4` primitive),
+the runtime system recognizes it as a "jetted function" and replaces its
+implementation with one optimized in hardware.  The optimized version
+must have the same behavior as the code it replaces.
+
+In order to keep things portable in practice, this set of blessed
+functions is standardized, and any "jetted function" must be optimized
+by all implementations.  Functions like this can never be removed from
+the standard, because doing so can break old code by making it too slow
+to use.
+
+
+### Machine: The IO System
+
+Plunder "Machines" are an IO system that runs a set of Plunder processes
+and give them access to various IO operations.
+
+Plunder machines are persistent, so no external database is needed.
+The implementation uses a snapshot-and-event-log system for efficient
+persistence.
+
+Processes can pass message around locally, and will soon be able to
+communicate over the internet with a public-key based addressing system.
+
+
+### Rex: An R-Expression Parser
+
+R-expressions are somewhere in between Lisp S-Expressions and Hoon's
+Runic Syntax.  Like in Lisp, we first parse Rex into a simple generic
+structure, and then we interpret that structure into an actual AST.
+
+
+### Sire: A Bootstrapping Language
+
+Sire is an ultra-minimalist language used to bootstrap a Plunder software
+ecosystem.  The behavior of Sire is fully specified.
+
+In most systems, the toolchain is distributed as a binary.  Even Urbit,
+which has an architecture similar to plunder, requires "pills" which
+are blobs of Nock code for bootstrapping.  Plunder, in contrast, does
+not use binary blobs.
+
+Binary blobs are difficult to audit and annoying to distribute.
+So instead, Plunder runtimes are required to include a Sire compiler,
+and the initial toolchain is bootstrapped from that.
+
+Sire has almost no features.  It has natural numbers, lambdas, and macros.
+Starting from only that, everything else is bootstrapped: Multiplication
+and strings, vectors and dictionaries, serialization and hashing, etc.
+
+
+Against Software Complexity
+===========================
 
 45 years after the release of the Apple II, we have regressed and reneged
 on the promise of user empowerment. Users of computers are not in control
 of their computation because they do not understand what their computers
-are doing, leading to code which is not in the user's interest. This is
-true even in the case of Free/Libre Software: Freedom 1 is the freedom to
-study and change a program to make it work as you wish, but sufficiently
-complex code makes doing either infeasible. Does Firefox or GCC actually
-comply with the spirit of Freedom 1?
+are doing, leading to code which is not in the user's interest. This
+is true even in the case of Free/Libre Software: "Freedom 1" is the
+freedom to study and change a program to make it work as you wish, but
+sufficiently complex code makes doing either infeasible. Does Firefox
+or GCC actually comply with the spirit of Freedom 1?
 
 The code run on user's computers then changes, to add unused features
 or to be even more user hostile, and being open source is not a defense
 against this. Product designers usually deride any complaints about this
 process as "change aversion". But aversion to these changes is correct:
-changes are an externality that product managers and designers force on
+changes are an externally that product managers and designers force on
 users, where change often makes the product worse for the user, while
 the product manager or engineer can reap the benefits by Demonstrating
 Impact to a promotion committee.
@@ -60,24 +249,8 @@ system from top to bottom. We need a computational formalism that:
     won't use this formalism in the first place. Real users have real
     amounts of data, often in the hundreds of gigabytes.
 
-Running the System
-==================
-
-You will need to install `lmdb` and Haskell's `stack` to build this.
-
-    $ stack install --fast
-    $ sire tests/laws.sire
-
-To understand the system you should start by reading
-[laws.sire](tests/laws.sire).  It starts by giving a brief explanation of
-all of the technologies involved, and then proceeds to bootstrap the
-whole world from scratch: from the low level formalism, it builds up
-natural number math, data structure definitions, and even the BLAKE3 hash
-function. The rest of this document will give examples using the
-environment defined in `tests/laws.sire`, explaining the why and how.
-
-But why? And why not Lisp?
-==========================
+"Couldn't you use Lisp for this?"
+=================================
 
 In a radically understandable system, the user-programmer must be able to
 inspect everything. Everything must be a value and there must be no
@@ -156,8 +329,7 @@ still being performant by allowing what would be built-in primitive
 functions like subtract or data structures like vectors with memory
 locality to have definitions given in the binary tree formalism.
 
-Show me a demo of why that matters
-----------------------------------
+### Why does this matter?
 
 Let's say we have a network with multiple nodes...
 
@@ -310,71 +482,6 @@ are backed by optimized representations. And since they're just function
 application values, you can serialize them or send these values over a
 wire, even between interpreters written in different languages with
 different internal structures.
-
-
-More Documentation
-==================
-
-Specifications can be found in [doc/](doc/), but they are presented
-formally and without much explanation.  The "Tours" in
-[laws.sire](tests/laws.sire) are much more accessible:
-
--   [PLUNDER_SPEC.txt](doc/PLUNDER_SPEC.txt)
--   [REX_SPEC.md](doc/REX_SPEC.md)
--   [SIRE_SPEC.md](doc/SIRE_SPEC.md)
--   [MACHINE_SPEC.md](doc/MACHINE_SPEC.md)
-
-This project is a stack of technologies:
-
-Plunder: The Runtime System
----------------------------
-
-Plunder is a lazily evaluated graph-reduction engine built on binary
-trees of natural numbers.
-
-Plunder is extremely simple and is permanently frozen.
-
-There is a blessed set of Plunder functions which runtime systems may
-recognize and replace with a more efficient implementation.  In this
-way, new primitive operations can be introduced without changing the
-formal model.
-
-Having a frozen model is important, because we expect Plunder programs
-to have uptime in the decades (since Plunder processes are persistent,
-they can live through hardware reboots).
-
-Plunder software written today will continue to work forever, and should
-be completely portable across all conformant implementations.
-
-
-Machine: The IO System
-----------------------
-
-Plunder "Machines" are an IO system that runs a set of Plunder processes
-and give them access to various IO operations.
-
-Plunder machines are persistent, so no external database is needed.
-The implementation uses a snapshot-and-event-log system for efficient
-persistence.
-
-Processes can pass message around locally, and will soon be able to
-communicate over the internet with a public-key based addressing system.
-
-
-Rex: A parser for the surface syntax.
--------------------------------------
-
-Rex(pressions) are somewhere in between Lisp S-Expressions and Hoon's
-Runic Syntax.  Like in Lisp, we parse Rex into a simple generic structure,
-and then we interpret that structure into an actual AST.
-
-
-Sire: A simple bootstrapping language.
---------------------------------------
-
-Starting with only lambdas and macros, we can bootstrap a whole
-ecosystem from scratch.  There is no need for "pills", since we can
-freeze the bootstrapping language.
 
 <!---
 Local Variables:

@@ -12,18 +12,18 @@
 
     [Representation]:
 
-        COW: Rn         = (0 1 (n+1) 0)
-        CAB: %{...}     = (0 2 (n+1) {...}) where n=length([...])
-        BAR: bx'00ff00' = (0 1 1 0x0100ff00)
-        ROW: {...}      = (Rn ...) where n=length([...])
-        TAB: %{k=v ..}  = (%{k ..} v ..)
+        COW: Rn        = (0 1 (n+1) 0)
+        CAB: %{...}    = (0 2 (n+1) {...}) where n=length([...])
+        BAR: X'00ff00' = (0 1 1 0x0100ff00)
+        ROW: {...}     = (Rn ...) where n=length([...])
+        TAB: %{k=v ..} = (%{k ..} v ..)
 
     [Evaluation]:
 
         COW: (R2 x y)     -> {x y}
         CAB: (%{a b} x y) -> %{a=x b=y}
-        BAR: bx''       9 -> 0
-        BAR: bx'00ff00' 9 -> 0x0100ff00
+        BAR: X''       9  -> 0
+        BAR: X'00ff00' 9  -> 0x0100ff00
         ROW: {x y} 9      -> R2
         TAB: %{k=v ...} 9 -> {k ...}
 -}
@@ -48,11 +48,11 @@ import qualified Data.Vector     as V
 
 -- Data Jets -------------------------------------------------------------------
 
-matchData :: LawName -> Nat -> Val -> Maybe Dat
-matchData (LN 0) 1 (VAL _ (NAT 0))       = Just $ ROW (fromList [])
-matchData (LN 0) n (VAL _ (NAT 0))       = Just $ COW (n-1)
-matchData (LN 0) n (VAL _ (DAT (ROW v))) = matchTab n v
-matchData (LN 1) 1 (VAL _ (NAT n))       = matchBar n
+matchData :: LawName -> Nat -> Pln -> Maybe Dat
+matchData (LN 0) 1 (PLN _ (NAT 0))       = Just $ ROW (fromList [])
+matchData (LN 0) n (PLN _ (NAT 0))       = Just $ COW (n-1)
+matchData (LN 0) n (PLN _ (DAT (ROW v))) = matchTab n v
+matchData (LN 1) 1 (PLN _ (NAT n))       = matchBar n
 matchData (LN _) _ _                     = Nothing
 
 matchBar :: Nat -> Maybe Dat
@@ -63,13 +63,13 @@ matchBar n = do
     let bytWidth = fromIntegral (bitWidth `div` 8)
     pure $ BAR $ take bytWidth $ natBytes n
 
-mkBar :: ByteString -> Val
-mkBar = VAL 1 . DAT . BAR
+mkBar :: ByteString -> Pln
+mkBar = PLN 1 . DAT . BAR
 
-mkRow :: [Val] -> Val
-mkRow = VAL 1 . DAT . ROW . V.fromList
+mkRow :: [Pln] -> Pln
+mkRow = PLN 1 . DAT . ROW . V.fromList
 
-matchTab :: Nat -> Vector Val -> Maybe Dat
+matchTab :: Nat -> Vector Pln -> Maybe Dat
 matchTab n vs = do
     guard (n == (1 + fromIntegral (length vs)))
     case toList vs of
@@ -81,7 +81,7 @@ matchTab n vs = do
     collect !acc i (AT w : ws) | w>i = collect (insertSet i acc) w ws
     collect _    _ _                 = Nothing
 
-evalData :: [Val] -> Dat -> Val
+evalData :: [Pln] -> Dat -> Pln
 evalData arg (COW _) = nodVal $ DAT $ ROW $ fromList arg
 evalData arg (CAB k) = nodVal $ DAT $ TAB $ mapFromList $ zip (toList k) arg
 evalData _   (ROW n) = nodVal $ DAT $ COW $ fromIntegral $ length n
@@ -97,8 +97,8 @@ barBody bytes =
 -- TODO Carefully review!
 dataWut
     :: ∀a
-     . (LawName -> Nat -> Val -> a)
-    -> (Val -> Val -> a)
+     . (LawName -> Nat -> Pln -> a)
+    -> (Pln -> Pln -> a)
     -> Dat
     -> a
 dataWut rul cel = \case
@@ -111,11 +111,11 @@ dataWut rul cel = \case
     COW n -> rul (LN 0) (n+1) (AT 0)
     CAB k -> cabWut k
   where
-    apple :: Nod -> NonEmpty Val -> a
+    apple :: Nod -> NonEmpty Pln -> a
     apple n (x :| [])     = cel (nodVal n) x
     apple n (v :| (x:xs)) = apple (APP n v) (x :| xs)
 
-    tabWut :: Map Nat Val -> a
+    tabWut :: Map Nat Pln -> a
     tabWut tab = case val of
                     []   -> cabWut mempty
                     v:vs -> apple (DAT $ CAB key) (v :| vs)

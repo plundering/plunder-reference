@@ -1,7 +1,7 @@
 {-# OPTIONS_GHC -Wall   #-}
 {-# OPTIONS_GHC -Werror #-}
 
-module Main where
+module Rex.TestExe (main) where
 
 import PlunderPrelude
 import Rex
@@ -13,16 +13,20 @@ import Data.Text.IO (hPutStrLn, hPutStr)
 --------------------------------------------------------------------------------
 
 main :: IO ()
-main = langTest ".rex" goldenRex
+main =
+   let ?rexColors = NoColors
+   in langTest ".rex" goldenRex
 
-goldenRex :: GoldPaths -> TestTree
+goldenRex :: RexColor => GoldPaths -> TestTree
 goldenRex pax = do
-    runTest pax \fil h firstLn (BLK _pos tex blk) -> do
+    runTest pax doBlk (const $ pure ())
+  where
+    doBlk fil h firstLn (BLK _pos tex blk) = do
         unless firstLn (hPutStrLn h "")
         hPutStr h $ case blk of Left err -> dent "!!" err
                                 Right vl -> verifyBlock fil tex vl
 
-verifyBlock :: FilePath -> Text -> Rex -> Text
+verifyBlock :: RexColor => FilePath -> Text -> Rex -> Text
 verifyBlock fil inp rex =
   let out = rexFile rex
   in case parseBlocks fil out of
@@ -30,15 +34,26 @@ verifyBlock fil inp rex =
        Right rs           -> dent "!!" $ noRound inp rs
        Left err           -> dent "!!" $ roundErr inp err
 
-noRound :: Text -> [Rex] -> Text
-noRound inp bars =
-  unlines [ "This expression:\n"
+noRound :: RexColor => Text -> [Rex] -> Text
+noRound inp [bar] =
+  unlines [ "This block:\n"
           , inp
           , "\nBecomes this when pretty-printed and re-parsed\n"
-          , intercalate "\n" (rexFile <$> bars)
+          , rexFile bar
+          ]
+noRound inp [] =
+  unlines [ "This block:\n"
+          , inp
+          , "\nBecomes nothing when pretty-printed and re-parsed."
+          ]
+noRound inp bars =
+  unlines [ "This block:\n"
+          , inp
+          , "\nBecomes these blocks when pretty-printed and re-parsed\n"
+          , intercalate "\n\n" (rexFile <$> bars)
           ]
 
-roundErr :: Text -> Text -> Text
+roundErr :: RexColor => Text -> Text -> Text
 roundErr inp err =
   unlines [ "This input:\n"
           , inp

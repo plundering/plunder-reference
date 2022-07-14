@@ -1,4 +1,4 @@
-module Main (main) where
+module Natty.BenchExe (main) where
 
 import Criterion.Main
 import Natty

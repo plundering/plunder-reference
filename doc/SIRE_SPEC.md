@@ -18,7 +18,7 @@ Expressions:
           f$x       -- static
 
     LET : [@ v x b] -- normal
-          [~ v x b] -- recursive
+          [@@ v x b] -- recursive
 
     LAM : (f x)?x   -- normal
           (f x)?!x  -- inline

@@ -1,46 +1,112 @@
+Sire
+====
+
+-   TODO Compile-Time Application ({!! 0 0 3 0} 3 4)
+
+    Go through each sub-expression and turn it into a Pln, then combine
+    the results into a single (embeded value) Pln.  If we run into a
+    local-reference, abort.
+
+    -   SECOND PHASE:
+
+        Whenever we bind a new local variable, check if it depends on
+        any function arguments.  If it does not, then track it's Pln value
+        (lazy so that we do no work unless we use it).
+
+-   TODO: Optimize lets AGAIN after inlining
+
+    Inlining can remove references to let-bindings, and we don't want
+    to generate code for let-bindings that are not used.
+
+-   TODO Consider adding a system of imports.
+
+    /+ laws
+    -- Reads in the last value defined in `laws.sire`
+    -- Adds it to a cache (the imports form a DAG).
+    -- The file is loaded starting with an empty environment.
+    -- Definitions made during import do not affect the existing environment.
+
+    /+ *laws
+    -- Same as the above, except that the result is expected to be a
+    -- table, and the results are all copied into the current environment.
+        -- TODO: How can this be made to work with inlining?
+
+-   TOOD Add a rune for embedding Loot commands and expressions in Sire.
+
+    Maybe something like:
+
+        ##(x=(f x ? 0:1:2 x))
+
+    This would work for commands and also for raw values (but no mixing
+    of Bod and Exp).
+
+-   TODO Inline Lambdas: `(x:x 3) := 3`
+
+-   TODO Static Lambdas: `(x![add x x] 3) := 6`
+
+-   TODO All command runes should be two-characters (except =)
+
+    Use `/=`, `*=`, etc.  Having overlapping runes between commands and
+    expressions is very confusing because commands are a superset of
+    expressions (raw expressions interpreted as PRINT).
+
+    -   TODO Give `XDUMPY` a two-char rune.
+    -   TODO Give `XALIAS`, `/` a two-char rune.
+
+-   TODO Cleanup SireExe.
+
+-   TODO Assertions should print evaluated arguments
+
+    `?? eql (add 1 2) (inc 9)` should print `?? eql 3 10` to show what failed.
+
+    Right now it just prints `1!=0` and `?? eql (add 1 2) (inc 9)`.
+
+- TODO Fix weird round-trip bug in tests.
+
+
 Loot
 ====
 
-- Update parser to match printer.
+- Go futher and have every generated binder name in an output block get
+  a unique name:
 
-- Separate Loot from Sire
+    For example, in the following code, we bind `j k l` many times:
 
-- Separate Loot from Sire
+        = (jam a b)
+        @ c
+           ? (jamCore d)
+           @ e ((j k l & j (R3:0 k l)) jamCore)
+           @ f ((j k l m n & j (R5:2 k l m n)) jamCore)
+           @ g ((j k l m & j (R4:3 k l m)) jamCore)
 
-- Update parser to match printer.
+    Large dis-assembled functions are noisy enough without the re-use of
+    variables names.
 
-- Consider NOT re-using bindings names in nested laws (in value syntax).
+- TODO Add fuzzing to the above.
 
-    For example:
-
-        := [natWords a]
-        | switch a
-           . natWords a
-           ? [loop a b]
-           | switch b
-              | cordConcat
-              | R2 [loop a div-b-10] [a mod-b-10]
-           , 0 %One %Two %Three %Four %Five %Six %Seven %Eight %Nine
-        | {%Zero}
-
-    Should be:
-
-        := [natWords a]
-        | switch a
-           . natWords a
-           ? [loop b c]
-           | switch c
-              | cordConcat
-              | R2 [loop b div-c-10] [b mod-c-10]
-           , 0 %One %Two %Three %Four %Five %Six %Seven %Eight %Nine
-        | {%Zero}
-
-    Technically the re-use of `a` in `loop` is valid, because the `Loot`
-    language does not have lexical scope for law literals.  But it's
-    still confusing.
 
 Rex
 ===
+
+-   The Open-mode printer should first walk continuation-sequence and
+    produce a list.  This way, it doesn't need to worry about the
+    does-it-have-an-heir case during the printing/indentation loop.
+
+-   Figure out how to have an input prompt.
+
+    It needs to support multiple lines.  It should probably change once
+    a non-block-terminating non-space lines has been input.
+
+-   Consider banning whitespace at the end of lines.
+
+    -   For the REPL, the block parser can have an option to do stripEnd
+        before lexing before lexing.
+
+-   Embeded values branch of ADT should not have heir slot.
+
+       What does it even mean to add a heir to an embed value?
+
+       What if the embeded value is "rendered", and *that* has a heir?
 
 -   Rex runes should be indentation sensitive along the right side (not left)
 
@@ -56,82 +122,146 @@ Rex
         | y
         ^^ z
 
--   TODO: Build out a real pretty-printing framework
+    TODO: Then how would bare words need to be aligned?
 
-    Replace this nonsense try-every-way brute force system.
+        %%% x
+          | y
+         ^^ z
+          hello
 
--   Bare expressions should not terminate a block unless they are the
-    first line.  This is important now that this syntax is acceptable:
+        Tempting to say that you just shouldn't do this.  (You shouldn't).
 
-    ```
-    | f x
-    y
-    z
-    ```
+        However, the data structure does allow `(&& x)hello` and the tall
+        form of that needs to be printable somehow.
 
-Sire
+            && x
+             hello
+
+    TODO What about pages?
+
+        Maybe you know, like...
+
+              | x
+            """ Do you mean like this?
+
+        Yes, I think it should work like that.
+
+    TODO Does that imply that the space after ''' should be mandatory?
+
+        No.  It looks weird, but it's okay.
+
+                | x
+              """y
+
+-   TODO: should name-pages juxtaposition be accepted?
+
+    This used to be supported, but it was removed when special syntax
+    for namePage and nameCord were removed.
+
+        X""" This is a
+         """ Test.
+
+    However, this is a perfectly coherent concept:
+
+    - It might make the gramar more complex.
+
+    - It breaks the usual assumption that the child of a wide-mode
+      objects is in wide-mode.
+
+        Or, to put that another way: `X""" x` can be printed only if it
+        isn't in a nested construct.  It's a pretty specific edge-case.
+
+    Overall, I think this syntax looks nice but may not be worth the
+    complexity.
+
+    If we were to use a rune instead.
+
+    Actually, another data-point here is that:
+
+        x&""" hi
+        $"""x y z
+
+    Are also pretty nice.  Should we allow pages in any non-nested
+    context?
+
+    This is actually not hard in the lexer, just accept pages anywhere.
+    They will automaticlaly fail to parse in any nested context.
+
+    Main concern is that it's complicated to print correctly.
+
+
+Plun
 ====
 
--   Inline Lambdas: `(x:x 3) := 3`
--   Static Lambdas: `(x![add x x] 3) := 6`
--   Lazy Loading
--   All command runes should be two-characters (except =)
--   Cleanup SireExe.
--   Assertions should print evaluated arguments
+-   Lazy loading?
 
-    `?? eql (add 1 2) (inc 9)` should print `?? eql 3 10` to show what failed.
-
-    Right now it just prints `1!=0` and `?? eql (add 1 2) (inc 9)`.
 
 Mandelbrot
 ==========
 
 - TODO Get Mandelbrot code running correctly.
 
+
+Macro Interface
+===============
+
+Change Rex representation to be nicer to read and work with by hand:
+
+    %fdsa            --  Bare word
+    [0 s t k?]       --  String x, style `s` (Always use above from where pos)
+    [1 x]            --  Directly embedded x
+    [RUNE xs k? s?]  --  Optional style at the end.
+                     --  0=OPEN which is the default.
+
+    (x y z) => ["|" [%x %y %z]]
+    X"fdsa" => [0 0 %X [0 1 %fdsa]]
+
+-   TODO Macros should return "new gensym state" instead of gensym
+    increment.  It just simpler, don't need to be so defensive here.
+
+
+Macro System
+============
+
+-   Command parser should also do macro-expansion.
+
+-   Make it so that macros can over-ride built-in syntax.
+
+-   Make all built-in syntax have a short form `@` and a long form `#@`.
+    This way, macro-expansions can target the stable two-character runes
+    and be free to redefine the one-character version.
+
+    In particular, we want to replace `*`, `@`, and `?` with versions
+    that support pattern matching and destructuring.
+
+
 Macros
 ======
 
-- `*` macro supports tabs.
-- Support other types of pattern matching.
-- Composite Pattern matching (multiple forms)
-- \cases syntax
+-   `*` macro should support other forms of destructuring
 
-- Implement command macros.
-
-    Macros currently only work on expressions, but it would be useful
-    to have command-macros as well.
-
-    Command macros should also be able to directly modify the environment,
-    the macros table, and maybe the requests table.
-
-- Macro definition should just use the `=` rune.
-
-    Add some way to refer to non-identifier symbols.  Like, to enable
-    us to have a global variable named 0.
-
-    This is useful because it means that we can do things like
+    - Rows (already supported)
+    - Tabs
+    - Simple identifiers.
+    - Composite patterns
 
     ```
-    ','=rowMacro
-
-    ?? eql `"," `","
-    ?? eql [`"," 0 0 emptyRow 0] [`"," 0 0 emptyRow 0]
+    * [%[=k =v] x [y1 y2]] _ _
     ```
 
-    TODO But what about command macros?  There needs to be a clear
-         separation too, because commands should be able to modify the
-         environment, which requires a different API for expression-macros
-         and command-macros.
+-   Pattern Matching (with destructuring)
 
-- Consider using `,,,` (or `,,`?) for one-item-per-line row literals.
+    Something like this.  Whatever.
 
-    ',' is hard to see, and the syntax rules are unintuitive.  For
-    example, the following two expressions are interpreted in totally
-    different ways.  This is confusing.
+        ### x
+          = 0            | %Zero
+          = 9            | %Nine
+          = @x (gte x 3) | mod x 3
+          = %[=k]        | k
+          = [x y]        | add x y
+          = [x y z]      | add x add-y-z
+          = (0 x)        | x
+          = ~[a b c]     | x
+          %fallback
 
-    ```
-    , f x  ==>  {f x}
-
-    , f x
-    , f x  ==>  {(f x) (f x)}
-    ```
+-   Support fancy lambda syntax with LambdaCases and pattern matching.

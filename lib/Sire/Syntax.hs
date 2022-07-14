@@ -3,6 +3,16 @@
 
 {-
 
+Alright, so the longer term plan here, once the Loot codebase stabilizes,
+is to:
+
+    - Remove all printing from this file.
+    - Rely on Loot parser for loot things.
+    - Rely on Loot printer for REPL output.
+    - Remove all the Sugar and move it into macros.
+-}
+
+{-
 Inlining
 ========
 
@@ -15,9 +25,14 @@ TODO: Implement inlining
 -   Each function argument becomes a let bindings.
 -   Function body simply becomes let-binding body.
 
-TODO: Implement inline application rune.
+TODO: Figure how coherent system of runes between Loot and Sire.
 
--   Something like [! f x y]
+TODO: Implement static-application rune.
+
+-   Something like [: f x y]
+-   Try to convert f and x and y to static values.
+-   To do this properly, we need to track all local bindings.  (Do they
+    depend on variables?)
 -   Validate that `f` is an inlinable quantity.
 -   Validate arity.
 -   Perform inlining.
@@ -27,8 +42,8 @@ TODO: Implement inline binders.
 -   Something like [! f x]=(x x)
 -   Same behavior as [f x]=(x x)
 -   (Fun Pln Refr Pln) added to "inline table".
--   Compiler recognizes application to inline binder, and replaces with
-    inline-application of normal lambda.
+-   A compiler pass recognizes application to inline binder, and replaces
+    it with explicit inline-application.
 
 TODO: Implement inline lambdas
 
@@ -36,550 +51,106 @@ TODO: Implement inline lambdas
 -   Compiler recognizes application to inline lambda, and replaces with
     inline-application of normal lambda.
 
+TODO: Implement compile-time-lambda binders.
 
+-   Something like [: f x]=(x x)
+-   Same behavior as [f x]=(x x)
+-   (Fun Pln Refr Pln) added to "static-lambda table".
+-   A compiler pass recognizes application to inline binder, and replaces
+    it with explicit compiler-time-application of normal lambda.
+
+TODO: Implement compile-time lambdas.
+
+-   Something like ((f x &: x x) 9)
+-   Compiler recognizes application to inline lambda, and replaces with
+    compile-time-application of normal lambda.
+
+
+    Rex Representation in Plunder
+    =============================
+
+    Representation could be:
+
+    %fdsa ;; bare_word
+
+    {rune}
+    {rune kids}
+    {rune kids cont}
+
+    {1 text}
+    {1 text style}
+    {1 text style cont}
+
+    {2 embed}
+    {2 embed cont}
 -}
 
-{-
--   TODO Make parser match printer and test:
-
-    -   TODO Test reparsing the output of running all of our Sire code.
-
-    -   TODO Implement `0:1` Bod syntax in parser (already in printer)
-
--   TODO `*` should support both rows and tabs.
-
-    -   Tabs look like: `[* %{a b} %{a=3 b=4} add-a-b]`.
-    -   Rows look like: `[* {a b} {a=3 b=4} add-a-b]`.
-
--   TODO: This switches between wide and tall modes by repeatedly
-    re-serializing.  This is insane!  It would be better if the printer
-    could store this information on the rex nodes themselves and calculate
-    that lazily.
-
--   TODO: Consider implementing generic pattern matching.
-
-    `* pat val` expects a specific pattern (no check)
-
-    `[+ exp][= pat exp][= pat exp]`
-
-    That switches across patterns.
-
-    Patterns may be any of:
-
-        #
-        [# _]
-        {}
-        {#}
-        {_}
-        {# _ ...}
-        {_ _ ...}
-        %{...}
-
-    I expect this is too complex to be worth it, but it's an idea.
-
-Rune Table:
-
-    $   ----
-    !   LIN (anonymus lambda to be inlined)
-    #   COR (cores, for mutually recursive functions)
-    %   TAB/NAT `%{tab='lit'}` / `%nat_lit`
-    &   LAM (anonymous lambda)
-    +   PAT (case expression, pattern matching)
-    ,   ROW (vector literal)
-    -   LET (non-recursive let)
-    |   APP (function application)
-    .   APP (reverse function application)
-    /   ALIAS (cmd only, maybe should be multi-char?)
-    `   BIG (full, optimized LETREC)
-    =   misc (not Exp rune but used in Cmd, and in branches of BIG/KNT/PAT/etc)
-    <   dump (only in commands: TODO maybe replace by multi-char rune)
-    >   ----
-    ?   LAM (named lambdas)
-    ^   LET (non-recursive where clause, reversed multi-let)
-    ~   REC (letrec)
-
--   TODO All command runes should be two-character execpt `=` and `\`.
-
-    Use `/=`, `*=`, etc.  Having overlapping runes between commands and
-    expressions is very confusing because commands are a superset of
-    expressions (raw expressions interpreted as PRINT).
-
--   TODO Give `XDUMPY` a two-char rune.
--   TODO Give `XALIAS`, `/` a two-char rune.
--   TODO Use `/` and `\` both for type declarations (unparsed, unchecked).
--   TODO `$` for identifiery disambig.
-
-    Use `$` instead of `/` for identifyer disambig. `$1` a$2`
-
--}
-
---  TODO Don't export expRex.
---
---  It's Currently needed for nice output on assertions, and no obvious
---  way to get our hands on the intermediate Val/Rul so that we can print
---  that instead.
---
---  This should be resolvable, and will allow us to delete much code.
 module Sire.Syntax
-    ( tagText
-    , tagNam
-    , tagStr
-    , tagRex
-    , lawNameText
-    , readCmd
+    ( readCmd
     , rexCmd
-    , valRex
-    , isNameChar
-    , readTag
-    , readSymb
-    , idnTag
-    , nameRex
-    , textRex
-    , parens
-    , xtagApp
-    , bodRexWid
-    , bodRex
-    , expRex
     , plunderMacro
     , MacroEnv(..)
-    , joinRex
     )
 where
 
 import PlunderPrelude
-import Data.ByteString.Base58
 import Rex
+import Loot.Types (Val(..), XTag(xtagIdn), xtagTag, LawName(..))
 import Sire.Types
-import Sire.Backend
+import Loot.Backend (valPlun, plunVal)
 
-import Data.ByteString.Builder (byteStringHex, toLazyByteString)
-import Data.Char               (isAlphaNum, isPrint)
-import Data.Text.Encoding      (decodeUtf8')
-import Plun.Types              (lawNameText)
+import Loot.Syntax (readArgs, readSymb, readBymb, readSigy, readKey)
+import Loot.Syntax (readNat)
+import Loot.Syntax (readXTag, simpleTag)
+import Loot.Syntax (rForm1Nc, rFormNc)
+import Loot.Syntax (rForm2c, rForm1c, rFormN1c, rForm3c)
+import Sire.Macro  (rexVal, loadRex, loadRow)
+import Plun.Print  (dent)
 
-import qualified Data.Char              as C
-import qualified Data.Map               as M
-import qualified Data.Text              as T
+import qualified Loot.Syntax  as Loot
+import qualified Loot.Sugar   as Loot
+import qualified Loot.ReplExe as Loot
 
--- Definitions -----------------------------------------------------------------
 
-tagText :: Tag -> Text
-tagText = \case
-  TAG "" n -> lawNameText n
-  TAG a  n -> lawNameText n <> "/" <> a
+-- Types -----------------------------------------------------------------------
 
-tagStr :: Tag -> String
-tagStr = unpack . tagText
+data MacroEnv = MacroEnv
+    { meGenSymState :: IORef Nat
+    , meGlobalScope :: Pln
+    , meMacros      :: Map Text Pln
+    }
+
+type MacroExpander v
+    = v
+    -> Nat
+    -> [(GRex v)]
+    -> Maybe (GRex v)
+    -> IO (Either (GRex v, Text) (Nat, (GRex v)))
+
+type HasMacroEnv = (?macros :: MacroEnv)
+
+type Red = ReadT Pln IO
+
 
 -- Printing --------------------------------------------------------------------
 
-tagRex :: Tag -> GRex v
-tagRex (TAG i (LN n)) =
-    if (i == natUtf8Exn n)
-    then nameRex i
-    else let lef = if okTagIdn i && False
-                   then T BARE_WORD i
-                   else T BARE_WORD (tshow n)
-         in N SHUT_INFIX "^" [nameRex i, lef Nothing] Nothing
-             -- TODO Consider using cords in some situations?
-
-okTagIdn :: Text -> Bool
-okTagIdn txt =
-    fromMaybe False $ do
-        guard (not $ null txt)
-        guard (okTagIdnFragment txt)
-        pure True
-  where
-    okTagIdnFragment :: Text -> Bool
-    okTagIdnFragment "" = False
-    okTagIdnFragment tx = all okTagIdnChar tx
-
-    okTagIdnChar :: Char -> Bool
-    okTagIdnChar '_' = True
-    okTagIdnChar c   = C.isAlpha c
-
-okIdn :: Text -> Bool
-okIdn txt =
-    fromMaybe False $ do
-        guard (not $ null txt)
-        (c, _) <- T.uncons txt
-        guard (not $ C.isDigit c)
-        pure (all okIdnChar txt)
-  where
-    okIdnChar '_' = True
-    okIdnChar c   = C.isAlphaNum c
-
-nameRex :: Text -> GRex v
-nameRex = textRex BARE_WORD
-
-textRex :: TextShape -> Text -> GRex v
-textRex s t = T s t Nothing
-
-barRex :: ByteString -> GRex v
-barRex bs =
-    case (decodeUtf8' bs) of
-      Right t | okCord t -> T BARE_WORD "B"  $ Just $ T THIN_CORD t  Nothing
-      _                  -> T BARE_WORD "BX" $ Just $ T THIN_CORD tx Nothing
-        where tx = toStrict $ decodeUtf8 $ toLazyByteString $ byteStringHex bs
-  where
-    okCord t = all C.isPrint t && all okSpace t
-    okSpace ' ' = True
-    okSpace c   = not (C.isSpace c)
-
-
-
-natRex :: Nat -> GRex v
-natRex n = case natUtf8 n of
-  Left _  -> nameRex (tshow n)
-  Right s ->
-    if | n < 256                        -> nameRex (tshow n)
-       | all isNameChar s && length s>1 -> wrapCol $ nameRex s
-       | isLineStr s                    -> T THIN_LINE s Nothing
-       | isBlocStr s                    -> toLine s
-       | otherwise                      -> nameRex (tshow n)
- where
-  wrapCol r   = N SHUT_PREFIX "%" [r] Nothing
-
-  toLine :: Text -> GRex v
-  toLine = go . T.lines
-    where
-      go []     = T THIN_LINE "" $ Nothing
-      go [l]    = T THIN_LINE l  $ Nothing
-      go (l:ls) = T THIN_LINE l  $ Just (go ls)
-
-  isOkPrint '\n' = False
-  isOkPrint '\t' = False
-  isOkPrint c    = isPrint c
-
-  isLineStr = all isOkPrint . unpack
-
-  isBlocStr s = and [ not (T.null s)
-                    , T.last s == '\n'
-                    , all isLineStr (T.lines s)
-                    ]
-
-xtagHasIdn :: XTag -> Bool
-xtagHasIdn (XTAG "" Nothing _) = False
-xtagHasIdn _                   = True
-
-simpleBody :: XBod -> Bool
-simpleBody XVAR{}         = True
-simpleBody (XBAD XVNAT{}) = True
-simpleBody (XBAD XVCOW{}) = True
-simpleBody _              = False
-
-
--- TODO Explicitly check if recursive somehow.
-lawRexWid :: XLaw -> GRex Rex
-lawRexWid (XLAW t r b) =
-    let mode = if simpleBody b && length r < 2 then SHUT_INFIX else NEST_INFIX
-    in
-    if xtagHasIdn t
-    then N NEST_INFIX "?" [sigRex t r, bodRexWid b] NONE
-    else N mode "&" [args (nameRex<$>r), bodRexWid b] NONE
-  where
-    args [x] = x
-    args xs  = parens xs
-
-lawRex :: XLaw -> GRex Rex
-lawRex (XLAW t r b) =
-    if xtagHasIdn t
-    then N OPEN "?" [sigRex t r] (Just $ bodRex b)
-    else N OPEN "&" [parens (nameRex<$>r)] (Just $ bodRex b)
-
-valRexWid :: XVal -> GRex Rex
-valRexWid = \case
-  XVREF r   -> nameRex r
-  XVNAT a   -> natRex a
-  XVAPP f x -> parens (valRexWid <$> unCell [x] f)
-  XVLAW l   -> lawRexWid l
-  XVBAR b   -> barRex b
-  XVROW r   -> rowRexWid r
-  XVCOW n   -> nameRex ("R" <> tshow n)
-  XVTAB t   -> tabRexWid t
-  XVCAB k   -> N SHUT_PREFIX "%" [kys] NONE
-                 where kys = N NEST_PREFIX "," (keyRex <$> toList k) NONE
-
-tabRexWid :: Map Nat XVal -> GRex Rex
-tabRexWid tab =
-    N SHUT_PREFIX "%" [N NEST_PREFIX "," kvs NONE] NONE
-  where
-    kvs = mapToList tab <&> \(k,v) -> N SHUT_INFIX "=" [keyRex k, valRex v] NONE
-
-keyRex :: Nat -> GRex v
-keyRex nat =
-    case natUtf8 nat of
-        Right n | okIdn n -> nameRex n
-        _                 -> natRex nat
-
-rowRexWid :: Vector XVal -> GRex Rex
-rowRexWid r = N NEST_PREFIX "," (valRexWid <$> toList r) Nothing
-
-xvalXBod :: XVal -> XBod
-xvalXBod = \case
-  XVREF r   -> XVAR r
-  XVNAT a   -> XBAD (XVNAT a)
-  XVAPP f x -> XAPP (xvalXBod f) (xvalXBod x)
-  XVLAW l   -> XBAD (XVLAW l)
-  XVBAR b   -> XBAD (XVBAR b)
-  XVROW b   -> XBAD (XVROW b)
-  XVCOW n   -> XBAD (XVCOW n)
-  XVTAB t   -> XBAD (XVTAB t)
-  XVCAB t   -> XBAD (XVCAB t)
-
-unCell :: [XVal] -> XVal -> [XVal]
-unCell acc = \case
-  XVAPP f x -> unCell (x:acc) f
-  x         -> (x:acc)
-
-parens :: [GRex v] -> GRex v
-parens rexz = N NEST_PREFIX "|" rexz Nothing
-
-wideApp :: [GRex v] -> GRex v
-wideApp rexz =
-    if all simple rexz
-    then N SHUT_INFIX  "-" rexz Nothing
-    else N NEST_PREFIX "|" rexz Nothing
-  where
-    simple (T BARE_WORD _ Nothing) = True
-    simple _                       = False
-
-valRex :: XVal -> GRex Rex
-valRex = bodRex . xvalXBod
-
-
-{-
-
-TODO
-
-    We should let the physical print system choose between these.
-
-    Maybe a concept of a PRINTREF which has a wide and tall output.
-
-    Wide output is used if it fits within within an 55-character output.
-
-    That way, the depth can also be considered for such things.
-
-    Also, the line-width can be tracked directly instead of constantly
-    re-serializing subtrees to compute.
-
-    Maybe something like this could work?
-
-    data Box = { bWid :: (Rex, Int) :: Tree and character-count
-               , bTal :: (Rex, Int) :: Tree and line-count
-               }
-
--}
-
-bodRex :: XBod -> GRex Rex
-bodRex x@XLET{} = bodRexOpen x
-bodRex x =
-  if length wideOut <= 55
-  then wideRex
-  else bodRexOpen x
- where
-  wideRex = bodRexWid x
-  wideOut = rexLine (joinRex wideRex)
-
-bodRexCont :: XBod -> GRex Rex
-bodRexCont = forceOpen . bodRex
-
-pattern NONE :: Maybe a
-pattern NONE = Nothing
-
-expRexWid :: XExp Rex -> GRex Rex
-expRexWid = \case
-    XEBED b              -> C b Nothing
-    XEREF r              -> nameRex r
-    XENAT a              -> natRex a
-    XEBAR a              -> barRex a
-    XEHAZ h              -> nameRex(decodeUtf8 $ encodeBase58 bitcoinAlphabet h)
-    XEAPP f x            -> parens (go <$> unEApp [x] f)
-    XEREC n v k          -> N NEST_INFIX "~" [nameRex n, go v] (Just $ go k)
-    XELET n v k          -> N SHUT_INFIX "@" [nameRex n, go v] (Just $ go k)
-    XEVEC vs             -> N NEST_PREFIX "," (go <$> vs) NONE
-    XECOW n              -> nameRex ("R" <> tshow n)
-    XETAB ps             -> N NEST_PREFIX "," (goPair <$> M.toAscList ps) NONE
-    XECAB k              -> valRexWid (XVCAB k)
-    XELAM (XFUN tg r b)  -> case tg of
-                                XTAG "" NONE NONE ->
-                                    nInf "&" [ goArgs r, go b ]
-                                _ ->
-                                    nInf "?"  [ sigRex tg r, go b ]
-
-    XELIN as -> nInf "!" (go <$> toList as)
-  where
-    nInf r c    = N NEST_INFIX  r c NONE
-    nPre r c    = N NEST_PREFIX r c NONE
-
-    go = expRexWid
-
-    goArgs [s] = nameRex s
-    goArgs ss  = nPre "|" (nameRex <$> ss)
-
-    goPair (k,v) = N SHUT_INFIX "=" [natRex k, go v] NONE
-
-bodRexOpen :: XBod -> GRex Rex
-bodRexOpen = \case
-  XBAD (XVREF r)    -> nameRex r
-  XBAD (XVNAT a)    -> natRex a
-  XBAD (XVAPP f x)  -> colSeq (valRex <$> unCell [x] f)
-  XCNS v            -> N OPEN "!" [valRex v] Nothing
-  XAPP f x          -> niceApp (bodRex <$> unXApp [x] f)
-  XLET n v k        -> N OPEN "@" [nameRex n, bodRex v] (Just $ bodRexCont k)
-  XBAD (XVLAW l)    -> lawRex l
-  XBAD (XVROW r)    -> comSeq (valRex <$> toList r)
-  XBAD (XVCAB k)    -> N OPEN "%" [comSeq $ fmap keyRex $ toList k] NONE
-  XBAD (XVTAB t)    -> N OPEN "%" [comSeq $ fmap f $ mapToList t] NONE
-                         where
-                           f :: (Nat, XVal) -> GRex Rex
-                           f (k, v) = N OPEN "=" [keyRex k, valRex v] NONE
-  x@(XVAR{})        -> bodRexWid x
-  x@(XBAD(XVBAR{})) -> bodRexWid x
-  x@(XBAD(XVCOW{})) -> bodRexWid x
-
-colSeq :: [GRex v] -> GRex v
-colSeq []     = error "impossible"
-colSeq [x]    = N OPEN ":" [x] Nothing
-colSeq (x:xs) = N OPEN ":" [x] (Just $ colSeq xs)
-
-comSeq :: [GRex v] -> GRex v
-comSeq []     = error "impossible"
-comSeq [x]    = N OPEN "," [x] Nothing
-comSeq (x:xs) = N OPEN "," [x] (Just $ comSeq xs)
-
-expRex :: XExp Rex -> GRex Rex
-expRex = \case
-    XEBED v              -> C v Nothing
-    XEREF r              -> nameRex r
-    XENAT a              -> natRex a
-    XEBAR a              -> barRex a
-    XEAPP f x            -> niceApp (go <$> unEApp [x] f)
-    XEHAZ h              -> expRexWid (XEHAZ h)
-    XEREC n v k          -> N OPEN "@" [nameRex n, go v] (Just $ go k)
-    XELET n v k          -> N OPEN "@" [nameRex n, go v] (Just $ go k)
-    XEVEC vs             -> N OPEN "," (go <$> vs) Nothing
-    XECOW n              -> nameRex ("R" <> tshow n)
-    XETAB ps             -> N OPEN "," (goPair <$> M.toAscList ps) Nothing
-    XECAB k              -> valRex (XVCAB k)
-
-    XELAM (XFUN tg r b)  ->
-        case tg of
-            XTAG "" NONE NONE -> nOpnC "&" [ goArgs r ]   (go b)
-            _                 -> nOpnC "?" [ sigRex tg r] (go b)
-
-    XELIN as -> nOpn "!" (go <$> toList as)
-
-  where
-    nOpn  r c   = N OPEN r c NONE
-    nOpnC r c k = N OPEN r c (Just k)
-    nPre  r c   = N NEST_PREFIX r c NONE
-
-    goArgs [s] = nameRex s
-    goArgs ss  = nPre "|" (nameRex <$> ss)
-
-    go = expRex
-
-    goPair (n,x) = N OPEN "=" [natRex n, expRex x] Nothing
-
-sigRex :: XTag -> [Text] -> GRex v
-sigRex n rs = N NEST_PREFIX "|" (xtagRex n : fmap nameRex rs) Nothing
-
-forceOpen :: GRex v -> GRex v
--- ceOpen (T s t k)        = T s t (forceOpen <$> k)
-forceOpen x@(N OPEN _ _ _) = x
-forceOpen (N _ "|" xs k)   = N OPEN "|" xs k
-forceOpen other            = N OPEN "|" [other] NONE
--- ceOpen (C c k)          = C c (forceOpen <$> k)
-
-joinRex :: GRex (GRex v) -> GRex v
-joinRex = \case
-    T s t k      -> T s t (joinRex <$> k)
-    C c Nothing  -> c
-    C c (Just k) -> rexAddCont c (joinRex k)
-    N m r x k    -> N m r (joinRex <$> x) (joinRex <$> k)
-
-rexAddCont :: GRex v -> GRex v -> GRex v
-rexAddCont (T s t Nothing) c    = T s t (Just c)
-rexAddCont (T s t (Just k)) c   = T s t (Just $ rexAddCont k c)
-rexAddCont (N m r x Nothing) c  = N m r x (Just c)
-rexAddCont (N m r x (Just k)) c = N m r x (Just $ rexAddCont k c)
-rexAddCont (C x Nothing) c      = C x (Just c)
-rexAddCont (C x (Just k)) c     = C x (Just $ rexAddCont k c)
-
-niceApp :: [GRex Rex] -> GRex Rex
-niceApp rs =
-  let normalRx = N OPEN "|" rs Nothing
-      outFile  = rexFile (joinRex normalRx)
-      outWidth = length outFile
-      outLines = length $ lines $ outFile
-  in
-      if outWidth <= 45 && outLines <= 1
-      then normalRx
-      else case reverse rs of
-             k:l:sx -> N OPEN "|" (reverse (l:sx)) (Just $ forceOpen k)
-             []     -> N OPEN "|" [] Nothing
-             [x]    -> N OPEN "|" [x] Nothing
-
-unXApp :: [XBod] -> XBod -> [XBod]
-unXApp acc = \case
-    XAPP f x -> unXApp (x:acc) f
-    x        -> (x:acc)
-
-eapp :: (XExp v, [XExp v]) -> XExp v
+eapp :: (XExp, [XExp]) -> XExp
 eapp (f,[])   = f
-eapp (f,x:xs) = eapp (XEAPP f x, xs)
-
-unEApp :: [XExp v] -> XExp v -> [XExp v]
-unEApp acc = \case
-    XEAPP f x -> unEApp (x:acc) f
-    x         -> (x:acc)
-
-bodRexWid :: XBod -> GRex Rex
-bodRexWid = \case
-    XVAR v           -> nameRex v
-    XBAD (XVREF r)   -> nameRex r
-    XBAD (XVNAT a)   -> natRex a
-    XBAD (XVAPP f x) -> N SHUT_INFIX ":" (valRexWid <$> unCell [x] f) NONE
-    XBAD (XVBAR b)   -> barRex b
-    XBAD (XVROW b)   -> valRexWid $ XVROW b
-    XBAD (XVCOW n)   -> nameRex ("R" <> tshow n)
-    XBAD (XVTAB t)   -> valRexWid (XVTAB t)
-    XBAD (XVCAB k)   -> valRexWid (XVCAB k)
-    XBAD (XVLAW l)   -> lawRexWid l
-    XCNS v           -> N SHUT_PREFIX "!" [valRexWid v] NONE
-    XAPP f x         -> wideApp (bodRexWid <$> unXApp [x] f)
-    XLET n v k       -> N NEST_INFIX "@" [nameRex n, bodRexWid v]
-                                         (Just $ bodRexWid k)
-
-xtagApp :: XTag -> [Text] -> GRex v
-xtagApp t [] = xtagRex t
-xtagApp t as = parens (xtagRex t : fmap nameRex as)
-
-xtagRex :: XTag -> GRex v
-xtagRex = \case
-    XTAG n d Nothing       -> disaRex n d
-    XTAG n d (Just (LN t)) -> N SHUT_INFIX "^" [disaRex n d, natRex t] NONE
-  where
-    disaRex ""  Nothing  = nameRex "_"
-    disaRex n   Nothing  = nameRex n
-    disaRex ""  (Just d) = N SHUT_INFIX "/" [nameRex "_", nameRex d] NONE
-    disaRex n   (Just d) = N SHUT_INFIX "/" [nameRex n, nameRex d] NONE
+eapp (f,x:xs) = eapp (EAPP f x, xs)
 
 
 -- Parsing ---------------------------------------------------------------------
 
-rexCmd :: ∀m. MacroEnv m Pln -> Rex -> Either Text (XCmd Pln)
-rexCmd env rex =
+rexCmd :: HasMacroEnv => Rex -> Either Text XCmd
+rexCmd rex =
     load (preProcess rex)
  where
   preProcess :: Rex -> GRex v
   preProcess = rewriteLeafJuxtaposition . fmap absurd
 
-  load :: GRex Pln -> Either Text (XCmd Pln)
-  load = resultEitherText dropEmbed rex
-       . runReading env readCmd
-       . stripComments
+  load :: GRex Pln -> Either Text XCmd
+  load = Loot.resultEitherText dropEmbed rex
+       . runReading readCmd
 
   dropEmbed :: Show v => GRex v -> Rex
   dropEmbed = \case
@@ -587,6 +158,7 @@ rexCmd env rex =
       C c k       -> T THIN_CORD (tshow c)    (dropEmbed <$> k)
       N m r xs mK -> N m r (dropEmbed <$> xs) (dropEmbed <$> mK)
 
+-- TODO: Should the parser just handle this directly?
 rewriteLeafJuxtaposition :: GRex a -> GRex a
 rewriteLeafJuxtaposition = go
   where
@@ -596,347 +168,153 @@ rewriteLeafJuxtaposition = go
       N m r p k      -> N m r (go <$> p) (go <$> k)
       C x k          -> C x (go <$> k)
 
-runReading :: MacroEnv m v -> Red m v a -> GRex v -> Result v a
-runReading env (READT act) inp
-    = unsafePerformIO do
-        flip runReaderT env
-            $ runResultT
-            $ act inp
+runReading :: Red a -> GRex Pln -> Result Pln a
+runReading act = unsafePerformIO . runResultT . runReadT act
 
-stripComments :: GRex v -> GRex v
-stripComments = \case
-    top@(N _ "#~" _ Nothing) -> top
-    N _ "#~" _ (Just k)      -> stripComments k
-    top                      -> fromMaybe top (go top)
+withRex :: Red v -> Red (Rex, v)
+withRex red = (,) <$> getRex <*> red
   where
-    go :: GRex v -> Maybe (GRex v)
-    go rex = case rex of
-        T{}           -> Just rex
-        N _ "#~" _ mK -> mK >>= go
-        N m r c k     -> Just $ N m r (catMaybes $ fmap go c) (k >>= go)
-        C{}           -> error "Impossibe: ambiguous infix already resolved"
+   getRex = fmap (const $ error "impossible") <$> readRex
 
-resultEitherText :: (GRex v -> Rex) -> Rex -> Result v a -> Either Text a
-resultEitherText cvt blk res =
-  case resultEither res of
-    Right x       -> pure x
-    Left (mR,err) -> Left (errMsg <> maybe "" showForm mR <> showBlock)
-     where
-      errMsg      = unlines [ "== READER ERROR ==", "", err ]
-      showForm rx = unlines [ "In Form:" , "" , dent "  " (rexFile $ cvt rx) ]
-      showBlock   = unlines [ "In Block:" , "" , dent "  " (rexFile blk) ]
-
-dent :: Text -> Text -> Text
-dent pre = unlines . fmap dentLine . lines
- where dentLine :: Text -> Text
-       dentLine "" = pre
-       dentLine ln = pre <> "  " <> ln
-
-type Red m v = ReadT v (ReaderT (MacroEnv m v) IO)
-
-readCmd :: ∀m. Red m Pln (XCmd Pln)
+readCmd :: HasMacroEnv => Red XCmd
 readCmd = asum
-  [ do rune "??"
-       checks <- slip1N "??" readExpr readExpr
-       pure $ XCHECK (checks <&> \(v,vs) -> foldl' XEAPP v vs)
-  , do rForm2c "#=" readCord readExpr XMACRO
-  , do rForm1c "#?" readExpr XPLODE
-  , do rune "<"
-       (v,vs) <- form1Nc readExpr readExpr
-       pure (XDUMPY $ foldl' XEAPP v vs)
-  , rForm2c  "*" readNamz readExpr XVOPEN
-  , do rune ":="
-       ((t,a,as), b) <- form2c (do rune "|" <|> rune "-"
-                                   form2N readXTag readSymb readSymb)
-                             readBod
-       pure (XMKRUL (XLAW t (a:as) b))
-  , do rune "/"
-       res <- slip2 "/" readSymb readVal
-       pure (XALIAS res)
-  , do rune "="
-       res <- slip2 "=" readSigy readExpr
-       pure $ XDEFUN (res <&> \((t,args),b) -> XFUN t args b)
-  , do rune "<-"
-       let readIdns = rune "," >> form2 readSymb readSymb
-       ((rid,res), exr) <- form2 readIdns readExpr
-       pure (XIOEFF rid res exr)
-  , XSAVEV <$> (rune "<<" >> form1 readExpr)
-  , XPRINT <$> readExpr
-  ]
+    [ do rune "??"
+         checks <- slip1N "??" (withRex readExpr) (withRex readExpr)
+         let bld :: ((Rex,XExp),[(Rex,XExp)]) -> ([Rex],XExp)
+             bld (v,vs) =  ( fst v : (fst <$> vs)
+                           , foldl' EAPP (snd v) (snd <$> vs)
+                           )
+         pure $ CHECK $ fmap bld checks
+    , do rForm1c "#?" readExpr EPLOD
+    , do rune "<"
+         (v,vs) <- form1Nc readExpr readExpr
+         pure (DUMPY $ foldl' EAPP v vs)
+    , do rune "="
+         res <- slip2 "=" readBinder readExpr
+         pure $ DEFINE $ res <&> \((t,args),b) ->
+             let nm = xtagIdn t
+                 tg = xtagTag t
+             in
+                 case args of
+                     []   -> BIND_EXP nm b
+                     r:rs -> BIND_FUN nm (FUN nm (LN tg) (r:|rs) b)
+             -- ((t,r:rs),b) -> BIND_FUN (xtagIdn t) _ -- args b
+                               -- where i = agIdn t) _ -- args b
 
-readArgs :: Red m v (Text, [Text])
-readArgs = asum
-    [ readSymb <&> \i -> (i, [])
-    , do rune "|" <|> rune "-" <|> rune "!" -- TODO Indicate inline-ness
-         form1N readSymb readSymb
+-- data Fun z v a = FUN v LawName (NonEmpty v) (Exp z v a)
+    , do rune "<-"
+         let readIdns = rune "," >> form2 readSymb readSymb
+         ((rid,res), exr) <- form2 readIdns readExpr
+         pure (IOEFF rid res exr)
+    , SAVEV <$> (rune "<<" >> form1 readExpr)
+    , PRINT <$> readExpr
     ]
-
-readSigy :: Red m v (XTag, [Text])
-readSigy = asum
-    [ readSymb <&> \i -> (idnXTag i, [])
-    , do rune "|" <|> rune "-" <|> rune "!" -- TODO Indicate inline-ness
-         form1N readXTag readSymb
-    ]
-
-readVal :: Red m v XVal
-readVal = asum [ XVNAT <$> readNat
-                , XVREF <$> readSymb
-                , do rune "|" <|> rune "-"
-                     (x, xs) <- form1Nc readVal readVal
-                     let cell a []    = a
-                         cell a (b:c) = cell (XVAPP a b) c
-                     pure (cell x xs)
-                , do rune ","
-                     vs <- formN readVal
-                     let r = fromIntegral (length vs + 1) :: Nat
-                     let vn = XVNAT 1 `XVAPP` XVNAT r
-                                      `XVAPP` XVNAT 1
-                                      `XVAPP` XVNAT 0
-                     let xc f []     = f
-                         xc f (x:xs) = xc (XVAPP f x) xs
-                     pure (xc vn vs)
-                ]
-
-readCow :: Red m v Nat
-readCow = matchLeaf "R[0-9]+" \case
-    (BARE_WORD, "R0") -> Just 0
-
-    (BARE_WORD, (unpack -> ('R' : n : ns))) -> do
-        guard (all C.isDigit (n:ns))
-        guard (n /= '0')
-        readMay (n:ns)
-    _ -> Nothing
-
-readBod :: Red m v XBod
-readBod = asum
-    [ XCNS . XVNAT <$> readNat -- TODO: Depends on scope.
-    , readCow <&> \case 0 -> XBAD (XVROW mempty)
-                        n -> XBAD (XVCOW n)
-    , XVAR <$> readSymb
-    , rune "|" >> (uncurry xapp <$> form1Nc readBod readBod)
-    , rune "-" >> (uncurry xapp <$> form1Nc readBod readBod)
-    , rune ":" >> (uncurry xbad <$> form1Nc readVal readVal)
-    , rune "!" >> (uncurry xcns <$> form1Nc readVal readVal)
-    , rune "@" >> (xlet <$> form3c readSymb readBod readBod)
-    ]
-  where
-    xlet = \(n,v,k) -> XLET n v k
-    xbad = \v vx -> XBAD (xvap v vx)
-    xcns = \v vx -> XCNS (xvap v vx)
-    xvap = foldl' XVAPP
-    xapp = foldl' XAPP
-
-readExcplicitTag :: Red m v LawName
-readExcplicitTag = LN <$> asum tag
-  where
-    tag = [ utf8Nat <$> readCord
-          , utf8Nat <$> readSymb
-          , readNat
-          ]
-
-readTag :: Red m v Tag
-readTag = asum
-    [ idnTag <$> readSymb
-    , do rune "^"
-         (i,t) <- form2 readSymb readExcplicitTag
-         pure (TAG i t)
-    ]
-
-readXTag :: Red m v XTag
-readXTag = asum
-    [ idnXTag <$> readSymb
-    , rForm2 "^" readSymb readNat \n t -> XTAG n NONE (Just (LN t))
-    ]
-
-idnTag :: Text -> Tag
-idnTag t = TAG t (LN $ utf8Nat t)
-
-readSymb :: Red m v Text
-readSymb = matchLeaf "symbol" \case
-    (BARE_WORD,n) | okIdn n -> Just n
-    _                       -> Nothing
-
-readHash :: Red m v Word256
-readHash =
-    matchLeaf "hash" \(s,n) -> do
-        guard (s == BARE_WORD)
-        guard (length n > 40)
-        bs <- decodeBase58 bitcoinAlphabet (encodeUtf8 n)
-        guard (length bs == 32)
-        pure bs
-
-readName :: Red m v Text
-readName = matchLeaf "name" \case
-    (BARE_WORD,n) -> Just n
-    _             -> Nothing
-
-readCord :: Red m v Text
-readCord = matchLeaf "cord" \case
-    (THIN_CORD,t) -> Just t
-    (THIC_CORD,t) -> Just t
-    _             -> Nothing
-
-readLine :: Red m v Text
-readLine = matchLeaf "page" \case
-    (THIC_LINE,l) -> Just l
-    (THIN_LINE,l) -> Just l
-    _             -> Nothing
-
-isNameChar :: Char -> Bool
-isNameChar '_' = True
-isNameChar c   = isAlphaNum c
-
-readNat :: Red m v Nat
-readNat = readNumb <|> readColn <|> readTape <|> line
-  where
-    line = utf8Nat <$> readLine
-    readTape = utf8Nat <$> readCord
-    readColn = rune "%" >> form1 (utf8Nat <$> readName)
-
-readNumb :: Red m v Nat
-readNumb = matchName "nat" \n ->
-             case unpack n of
-               '_':_ -> Nothing
-               _     -> readMay (filter (/= '_') n)
 
 -- Functions -------------------------------------------------------------------
 
-data MacroEnv m v = MacroEnv
-    { meGenSymState :: IORef Nat
-    , meGlobalScope :: v
-    , meMacros      :: Map Text v
-    }
+-- rexPlnRex :: RexColor => GRex Pln -> GRex v
+-- rexPlnRex = fmap absurd
+          -- . Loot.joinRex
+          -- . fmap Loot.plunRex
 
-readNamz :: Red m v [Text]
-readNamz = asum
-    [ readSymb <&> singleton
-    , rune "," >> formN readSymb
-    ]
-
-type MacroExpander v
-    = v
-    -> Nat
-    -> [(GRex v)]
-    -> Maybe (GRex v)
-    -> IO (Either Text (Nat, (GRex v)))
+valPlnRex :: RexColor => Val Pln -> GRex v
+valPlnRex = fmap absurd
+          . Loot.joinRex
+          . Loot.valRex
+          . Loot.resugarVal mempty
+          . fmap (utf8Nat . rexLine . Loot.plunRex)
 
 -- TODO Better to just use a parameter instead of IO monad?
-runMacro :: MacroExpander Pln -> Red m Pln (XExp Pln)
+-- TODO This is non-generic now, can we just collapse all this complexity?
+runMacro :: HasMacroEnv => MacroExpander Pln -> Red XExp
 runMacro macro = do
     (xs, mK) <- readNode
-    env@MacroEnv{..} <- lift ask
+    let MacroEnv{..} = ?macros
     n <- readIORef meGenSymState
     liftIO (macro meGlobalScope n xs mK) >>= \case
-        Left err -> throwError err
+        Left (rex, msg) ->
+            let ?rexColors = NoColors in
+            throwError $ (msg <>)
+                       $ ("\n\nIn Sub-Expression:\n\n" <>)
+                       $  dent "   "
+                       $ rexFile
+                       $ Loot.joinRex
+                       $ fmap Loot.plunRex rex
         Right (!used, !res) -> do
             modifyIORef' meGenSymState (+used)
-            liftIO ( flip runReaderT env
-                   $ runResultT
+            liftIO ( runResultT
                    $ runReadT readExpr res
                    ) >>= readResult
 
-readExpr :: Red m Pln (XExp Pln)
+readExpr :: HasMacroEnv => Red XExp
 readExpr = do
-    MacroEnv{meMacros} <- lift ask
+    let MacroEnv{meMacros} = ?macros
     let macros = mapToList meMacros <&> \(r,h) -> do rune r
                                                      runMacro (plunderMacro h)
     asum (fixed <> macros)
   where
     fixed =
-        [ XEBED <$> readExtra
-        , XEHAZ <$> readHash
+        [ EBED <$> readExtra
+        , rune "%%" >> readOpenTabish
         , do rune "%"
              form1 $ asum
-                 [ XENAT . utf8Nat <$> readName
-                 , either XECAB XETAB <$> readTab readExpr XEREF
+                 [ ENAT . utf8Nat <$> Loot.readName
+                 , either ECAB ETAB <$> readTab readExpr EREF
                  ]
-        , XENAT <$> readNat
-        , readCow <&> \case 0 -> XEVEC mempty
-                            n -> XECOW n
-        , XEREF <$> readSymb
+        , ENAT <$> readNat
+        , Loot.readCow <&> \case 0 -> EVEC mempty
+                                 n -> ECOW n
+        , EREF <$> readSymb
         , rFormN1c "."   readExpr readExpr          appTo
-        , rForm3c  "~"   readSymb readExpr readExpr XEREC
+        , rForm3c  "@@"  readSymb readExpr readExpr EREC
         , rForm2c  "?"   readSigy readExpr          nameLam
         , rForm2c  "&"   readArgs readExpr          anonLam
-     -- , rForm2c  "&!"  readArgs readExpr          anonLin
-     -- , rForm2c  "&!!" readArgs readExpr          anonStatic
 
         -- TODO Make this a macro
-        , rFormN1c "^"   readExpr readBind          mkWhere
+        , rFormN1c "^"   readExpr readTBin          mkWhere
 
         , rForm1Nc "|"   readExpr readExpr          apple
         , rForm1Nc "-"   readExpr readExpr          apple
-        , rForm3c  "@"   readSymb readExpr readExpr XELET
-        , rForm1Nc  "!"  readExpr readExpr          mkInline
-        , do rune ","
-             asum [ XEVEC <$> formN readExpr
-                  , do sequ <- slip1N "," readExpr readExpr
-                       pure $ XEVEC $ fmap eapp sequ
-                  ]
+        , rForm3c  "@"   readSymb readExpr readExpr ELET
+        , rForm1Nc "!"   readExpr readExpr          mkInline
+        , rFormNc  ","   readExpr                   EVEC
+        , do rune ",,"
+             sequ <- slip1N ",," readExpr readExpr
+             pure $ EVEC $ fromList $ fmap eapp sequ
         ]
 
     apple f []    = f
-    apple f (b:c) = apple (XEAPP f b) c
+    apple f (b:c) = apple (EAPP f b) c
 
     appTo xs f = apple f xs
 
-    mkInline f xs = XELIN (f :| xs)
+    mkInline f xs = ELIN (f :| xs)
 
-    mkWhere :: [XExp v] -> [(Text, XExp v)] -> XExp v
-    mkWhere []     []         = XENAT 0 -- TODO: Implement and use `form1N1c`
+    mkWhere :: [XExp] -> [(Symb, XExp)] -> XExp
+    mkWhere []     []         = ENAT 0 -- TODO: Implement and use `form1N1c`
     mkWhere (f:xs) []         = apple f xs
-    mkWhere fxs    ((n,v):bs) = XELET n v (mkWhere fxs bs)
+    mkWhere fxs    ((n,v):bs) = ELET n v (mkWhere fxs bs)
 
-    anonLam (r,rs) x = XELAM (XFUN (idnXTag "") (r:rs) x)
-    nameLam (t,rs) x = XELAM (XFUN t            rs     x)
-    -- anonLin (r,rs) x = XELIN (XFUN (idnXTag "") (r:rs) x)
+    anonLam :: NonEmpty Symb -> XExp -> XExp
+    anonLam rs x = ELAM (FUN 0 (LN 0) rs x)
 
-    readBind = rune "=" >> slip2 "=" readSymb readExpr
+    nameLam :: (XTag, NonEmpty Symb) -> XExp -> XExp
+    nameLam (t,rs) x = ELAM (FUN (xtagIdn t) (LN $ xtagTag t) rs x)
 
-rForm1c :: Text -> Red m v a -> (a -> b) -> Red m v b
-rForm1c r x k = rune r >> form1c x >>= \a -> pure (k a)
+    readTBin = rune "=" >> slip2 "=" readSymb readExpr
 
-rFormN1c :: Text -> Red m v a -> Red m v b -> ([a] -> b -> c) -> Red m v c
-rFormN1c r x y k = rune r >> formN1c x y >>= \(a,b) -> pure (k a b)
-
-_rFormN :: Text -> Red m v a -> ([a] -> b) -> Red m v b
-_rFormN r x k = rune r >> formN x >>= pure . k
-
-rForm3c :: Text -> Red m v a -> Red m v b -> Red m v c -> (a -> b -> c -> d)
-        -> Red m v d
-rForm3c r x y z k = rune r >> form3c x y z >>= \(a,b,c) -> pure (k a b c)
-
-rForm2 :: Text -> Red m v a -> Red m v b -> (a -> b -> c) -> Red m v c
-rForm2 r x y k = rune r >> form2 x y >>= \(a,b) -> pure (k a b)
-
-rForm2c :: Text -> Red m v a -> Red m v b -> (a -> b -> c) -> Red m v c
-rForm2c r x y k = rune r >> form2c x y >>= \(a,b) -> pure (k a b)
-
-_rForm1N :: Text -> Red m v a -> Red m v b -> (a -> [b] -> c) -> Red m v c
-_rForm1N r x y k = rune r >> form1N x y >>= \(a,bs) -> pure (k a bs)
-
-rForm1Nc :: Text -> Red m v a -> Red m v b -> (a -> [b] -> c) -> Red m v c
-rForm1Nc r x y k = rune r >> form1Nc x y >>= \(a,bs) -> pure (k a bs)
-
-idnXTag :: Text -> XTag
-idnXTag n = XTAG n NONE NONE
-
--- TODO Support tall form
-readTab
-    :: ∀a m v
-     . Red m v a
-    -> (Text -> a)
-    -> Red m v (Either (Set Nat) (Map Nat a))
+-- TODO Make this a macro.
+readTab :: ∀a. Red a -> (Symb -> a) -> Red (Either (Set Nat) (Map Nat a))
 readTab ele var = do
     rune ","
 
-    let keyEle n = (utf8Nat n, var n)
+    let keyEle n = (n, var n)
 
     res :: [Either Nat (Nat,a)]
         <- formN $ asum
-                 [ Left <$> readKey
+                 [ Left <$> Loot.readKey
                  , Right <$> (rune "=" >> (    form2 readKey ele
-                                           <|> (keyEle <$> form1 readSymb)
+                                           <|> (keyEle <$> form1 readKey)
                                           ))
                  ]
 
@@ -958,124 +336,105 @@ readTab ele var = do
     sawBoth = throwError "Cannot mix %{a} and %{a=3} forms."
     dups k  = throwError ("Key appears twice in tab literal: " <> tshow k)
 
-readKey :: Red m v Nat
-readKey = asum
-    [ readNumb
-    , utf8Nat <$> readSymb
-    , utf8Nat <$> readCord
-    ]
-
 
 -- Macros ----------------------------------------------------------------------
 
+-- TODO This can be massivly simplified.
 plunderMacro :: Pln -> MacroExpander Pln
 plunderMacro macroLaw macEnv nex xs mK = do
     let vs  = ROW $ fromList (rexVal <$> xs)
     let kv  = maybe (NAT 0) rexVal mK
-    let res = valPlun (REF macroLaw `APP` REF macEnv
-                                    `APP` NAT nex
-                                    `APP` vs
-                                    `APP` kv)
+    let res = valPlun
+                ( REF macroLaw
+                    `APP` REF macEnv
+                    `APP` NAT nex
+                    `APP` vs
+                    `APP` kv)
 
-    pure $ case plunVal res of
-        NAT (natUtf8 -> Right msg) ->
-            Left msg
-        ROW (toList -> [NAT used, body]) -> do
-            rez <- loadRex valPlun body
-            pure (used, rez)
-        _  ->
-            Left "Invalid Macro Expansion"
---where
---  showRaw :: v -> Text
---  showRaw x = "Δ" <> tshow (unsafeCoerce x :: Plun.Val)
+    let vl = plunVal res
+    pure $ let ?rexColors = NoColors
+           in loadMacroExpansion vl
 
-loadRex :: (Val Pln -> Pln) -> Val Pln -> Either Text (GRex Pln)
-loadRex putVal =
-    loadRow >=> loadRexRow
+loadMacroExpansion
+    :: RexColor
+    => Val Pln
+    -> Either (GRex Pln, Text) (Nat, GRex Pln)
+loadMacroExpansion topVal = case topVal of
+    APP (NAT 0) errRow ->
+        case loadRow errRow of
+            Left (val, le) ->
+                Left (valPlnRex val, loadErr errRow "error context" le)
+            Right [errExp, NAT err] -> do
+                case (loadRex valPlun errExp, natUtf8Exn err) of
+                    (Left (val, _le), ctx) -> Left (valPlnRex val, ctx)
+                    (Right rez, errMsg)   -> Left (rez, errMsg)
+                    -- TODO handle invalid error strings more carefully.
+            _ -> topBad
+    APP (NAT 1) expRow ->
+        case loadRow expRow of
+            Left (val, le) ->
+                Left (valPlnRex val, loadErr expRow "result" le)
+            Right [NAT used, body] -> do
+                case (loadRex valPlun body) of
+                    Left (val, err) -> Left (valPlnRex val, err)
+                    Right rez -> Right (used, rez)
+            _ -> topBad
+    _ -> topBad
   where
-    recur = loadRex putVal
+    loadErr :: Val Pln -> Text -> Text -> Text
+    loadErr _val ctx expect = concat
+        [ "Error when loading "
+        , ctx
+        , ".  Was expecting: "
+        , expect
+        ]
 
-    loadRow (ROW r) = Right (toList r)
-    loadRow vl      = bad "node" vl
+    bad expr expLn =
+        unlines
+            (["Invalid macro expansion.  Expected " <> expr] <> expLn)
 
-    loadName (NAT (natUtf8 -> Right n)) = Right n
-    loadName vl                         = bad "name" vl
+    topBad = Left (valPlnRex topVal, bad "one of:" shapes)
+      where
+        shapes =
+            [ ""
+            , "    (0 [val/Any error/Nat])"
+            , ""
+            , "    (1 [used/Nat exp/Rex])"
+            ]
 
-    loadCord (NAT (natUtf8 -> Right n)) = Right n
-    loadCord vl                         = bad "cord" vl
-
-    bad :: Show w => Text -> w -> Either Text b
-    bad expect val = Left $ concat [ "Bad macro expansion, not a "
-                                   , expect
-                                   , ": "
-                                   , tshow val
-                                   ]
-
-    loadRexRow = \case
-        [NAT 0, r, x] -> loadRexRow [NAT 0, r, x, NAT 0]
-        [NAT 1, n]    -> loadRexRow [NAT 1, n, NAT 0]
-        [NAT 2, c]    -> loadRexRow [NAT 2, c, NAT 0]
-        [NAT 3, p]    -> loadRexRow [NAT 3, p, NAT 0]
-        [NAT 4, z]    -> loadRexRow [NAT 4, z, NAT 0]
-
-        [NAT 0, rv, xsv, mkv] -> do
-            rwne <- loadCord rv
-            xs <- toList <$> (loadRow xsv >>= traverse recur)
-            mK <- loadCont mkv
-            pure (N OPEN rwne xs mK)
-
-        -- TODO Change this to match new representation
-        [NAT 1, n, k] -> T BARE_WORD <$> loadName n <*> loadCont k
-        [NAT 2, n, k] -> T THIN_CORD <$> loadCord n <*> loadCont k
-        [NAT 3, p, k] -> T THIN_LINE <$> loadCord p <*> loadCont k
-        [NAT 4, z, k] -> C (putVal z) <$> loadCont k
-        (NAT n : _)   -> Left ("Invalid rex node (key=" <> tshow n <> ")")
-        _             -> Left "Invalid rex node"
-
-    loadCont (NAT 0) = pure Nothing
-    loadCont mkv     = Just <$> recur mkv
-
-{-
-
-    Representation could be:
-
-    %asdf ;; bare_word
-
-    {rune}
-    {rune kids}
-    {rune kids cont}
-
-    {1 text}
-    {1 text style}
-    {1 text style cont}
-
-    {2 embed}
-    {2 embed cont}
--}
-
-rexVal :: GRex Pln -> Val Pln
-rexVal = \case
-    -- TODO Change this to match new representation:
-    -- {0 m p k}
-    -- {1 m t k}
-    -- {2 v k}
-
-    N _ rn xs Nothing      -> rowV[NAT 0, cordV rn, rowV(rexVal<$>xs)]
-    T BARE_WORD n Nothing  -> rowV[NAT 1, cordV n]
-    T THIN_CORD c Nothing  -> rowV[NAT 2, cordV c]
-    T THIN_LINE p Nothing  -> rowV[NAT 3, cordV p]
-    C bed Nothing          -> rowV[NAT 4, REF bed]
-
-    N _ rn xs (Just k)     -> rowV[NAT 0, cordV rn, rowV(rexVal<$>xs), rexVal k]
-    T BARE_WORD n (Just k) -> rowV[NAT 1, cordV n, rexVal k]
-    T THIN_CORD c (Just k) -> rowV[NAT 2, cordV c, rexVal k]
-    T THIN_LINE p (Just k) -> rowV[NAT 3, cordV p, rexVal k]
-    C bed (Just k)         -> rowV[NAT 4, REF bed, rexVal k]
-
-    T THIC_CORD c k   -> rexVal (T THIN_CORD c k) -- TODO
-    T THIC_LINE p k   -> rexVal (T THIN_LINE p k)
+readBinder :: Red (XTag, [Symb])
+readBinder = simple <|> complex
   where
-    cordV = NAT . utf8Nat
+    simple = fmap ((,[]) . simpleTag) readBymb
 
-    rowV :: [Val v] -> Val v
-    rowV = ROW . fromList
+    -- TODO Indicate inline-ness
+    complex = do
+        rune "|" <|> rune "-" <|> rune "!"
+        form1N readXTag readSymb
+
+-- TODO Make this a macro.
+readOpenTabish :: HasMacroEnv => Red XExp
+readOpenTabish =
+    slip1N "%%" readKey readExpr >>= combine
+  where
+    noMix = unlines
+        [ "Is this supposed to be a Tab or a Cab?"
+        , ""
+        , "Some entries have values and some do not."
+        ]
+
+    apple :: [XExp] -> XExp
+    apple []     = error "impossible: We already checked this."
+    apple (x:xs) = foldl' EAPP x xs
+
+    combine :: [(Nat, [XExp])] -> ReadT v IO XExp
+    combine pairs = do
+        let keySet = setFromList (fst <$> pairs)
+        let values = snd <$> pairs
+        when (length pairs /= length keySet) do
+            throwError "Duplicated Key"
+            -- TODO Find and show the offending key.
+        if | all null values -> pure (ECAB keySet)
+           | any null values -> throwError noMix
+           | otherwise       -> (pure . ETAB . mapFromList)
+                              $ over _2 apple <$> pairs

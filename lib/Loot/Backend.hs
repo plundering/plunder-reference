@@ -55,12 +55,12 @@ Here are the rules we use to resolve this problem:
     Not Accepted: `{_ a_ 5 0a a- -foo -foo-bar}`
 -}
 
-module Sire.Backend
+module Loot.Backend
     ( Closure(..)
     , NamedClosure(..)
     , nameClosure
-    , rulePlun
-    , makeShallow
+    , rulePlunRaw
+    , rulePlunOpt
     , valBod
     , bodVal
     , optimizeRul
@@ -69,23 +69,28 @@ module Sire.Backend
     , plunLoad
     , valPlun
     , plunVal
-    , plunClosure
-    , plunShallow
+    , loadClosure
+    , loadShallow
+    , isPlnCodeShaped
+    , isValCodeShaped
     )
 where
 
 import PlunderPrelude
-import Sire.Types
+import Loot.Types
 import System.Directory
 import Plun.Print
 
 import Control.Monad.State  (State, evalState, runState, get, put)
 import Data.Vector          ((!))
 import Jar                  (capBSExn)
-import Plun                 (pattern AT, (%%))
+import Loot                 (keyRex)
+import Plun                 (pattern AT, (%%), Pln(PLN))
+import Plun.Types           (pattern (:#), pattern (:&))
+import Rex.Print            (RexColorScheme(NoColors), rexLine)
 
-import qualified Data.Char   as C
-import qualified Data.Text   as T
+-- ort qualified Data.Char   as C
+-- ort qualified Data.Text   as T
 import qualified Data.Vector as V
 import qualified Plun      as P
 
@@ -104,44 +109,50 @@ import qualified Plun      as P
 --  that they reference.
 --
 --  The "name" of a pin is the name of the rule in it, or just 0.
-data Closure a = CLOSURE
-    { closureEnv :: Vector (a, Either Nat (Val Int))
+data Closure = CLOSURE
+    { closureEnv :: Vector (Pln, Maybe (Val Int))
     , closureVal :: Val Int
     }
   deriving (Show, Generic, NFData)
 
 data NamedClosure = NAMED_CLOSURE
-    { nmz :: Vector Text
-    , env :: Map Text (Val Text)
-    , val :: Val Text
+    { nmz :: Vector Symb
+    , env :: Map Symb (Val Symb)
+    , val :: Val Symb
     }
   deriving (Show, Generic, NFData)
 
-valName :: Val a -> LawName
-valName (LAW n _ _) = n
-valName _           = LN 0
+rulePlunRaw :: Rul Pln -> Pln
+rulePlunRaw = valPlun . rulVal
 
---  This is a hack to make a full-load look like a shallow load.
---  Backends should support actual shallow loads for performance reasons,
---  but this is a stop-gap hack on the way towards building that out.
-makeShallow :: Closure val -> Closure val
-makeShallow (CLOSURE env top) = CLOSURE env' top
-  where
-    env' = (flip V.imap env) \i (raw, ev) ->
-             (raw,) $
-             case ev of
-               Right v | REF i == top -> Right v
-               Right v                -> Left (lawNameNat $ valName v)
-               Left nm                -> Left nm
-
-rulePlun :: Rul Pln -> Pln
-rulePlun = valPlun . rulVal . optimizeRul
+rulePlunOpt :: Rul Pln -> Pln
+rulePlunOpt = valPlun . rulVal . optimizeRul
 
 rulVal :: Rul a -> Val a
+rulVal (RUL (LN _)  0  bd) = zeroArgRule bd
 rulVal (RUL (LN nm) ar bd) =
     NAT 0 `APP` (NAT $ fromIntegral nm)
           `APP` (NAT ar)
           `APP` (bodVal bd)
+
+{-
+    Zero arity rule is fudged into a one arity rule pre-applied to `0`.
+    All variable references are bumped and self-references return `NAT-0`.
+
+    This is basically a hack to make the `[foo]:=3` syntax work, which
+    should probably be handled in the parser instead.
+-}
+zeroArgRule :: Bod a -> Val a
+zeroArgRule bd =
+    APP (rulVal $ RUL (LN 0) 1 $ go bd) (NAT 0)
+  where
+    go (BCNS v)   = BCNS v
+    go (BBAD v)   = BBAD v
+    go (BVAR 0)   = BCNS (NAT 0)
+    go (BVAR n)   = BVAR (n+1)
+    go (BAPP x y) = BAPP (go x) (go y)
+    go (BLET v b) = BLET (go v) (go b)
+
 
 {-
     Removes extraneous CNS
@@ -156,14 +167,14 @@ optimizeRul (RUL nm ar bd) =
         BAPP f x -> BAPP (go maxArg f) (go maxArg x)
         BVAR v   -> BVAR v
         BBAD v   -> BBAD v
-        BCNS v   -> if isCodeShaped maxArg v then BCNS v else BBAD v
+        BCNS v   -> if isValCodeShaped maxArg v then BCNS v else BBAD v
 
 -- 0, 1, ...
 -- (0 f x)
 -- (1 v b)
 -- (2 c)
-isCodeShaped :: Nat -> Val Pln -> Bool
-isCodeShaped maxArg = loop
+isValCodeShaped :: Nat -> Val Pln -> Bool
+isValCodeShaped maxArg = loop
   where
     loop = \case
         NAT n                 -> n <= maxArg
@@ -173,6 +184,7 @@ isCodeShaped maxArg = loop
 
         REF (plunAlias -> Just rv) -> loop rv
         REF _                      -> False
+
         APP (REF r) a         -> case plunAlias r of
                                      Just rv -> loop (rv `APP` a)
                                      Nothing -> False
@@ -198,15 +210,7 @@ valBod maxArg = \case
     APP (APP (NAT 1) x) b -> BLET (valBod (maxArg+1) x) (valBod (maxArg+1) b)
     v                     -> BBAD v
 
-initialIdn :: Either Nat (Val Int) -> Text
-initialIdn = natIdn . either id (lawNameNat . valName)
-
-natIdn :: Nat -> Text
-natIdn name = fromMaybe "" $ do
-    txt <- either (const Nothing) Just (natUtf8 name)
-    guard (okIdn txt)
-    pure txt
-
+{-
 okIdn :: Text -> Bool
 okIdn txt =
     fromMaybe False $ do
@@ -223,51 +227,70 @@ okIdn txt =
 
     okIdnChar '_' = True
     okIdnChar c   = C.isAlphaNum c
+-}
 
-nameClosure :: Closure v -> NamedClosure
+nameClosure :: Closure -> NamedClosure
 nameClosure (CLOSURE env val) =
     NAMED_CLOSURE names envir value
   where
-    toMap :: (Int, Either Nat (Val Int)) -> Maybe (Text, Val Text)
-    toMap (_, Left _)  = Nothing
-    toMap (i, Right v) = Just (names!i, fmap (names!) v)
-
-    envir = mapFromList
-          $ catMaybes
-          $ fmap toMap
-          $ toList
-          $ V.imap (,)
-          $ fmap snd env
+    toMap :: (Int, (Pln, Maybe (Val Int))) -> Maybe (Symb, Val Symb)
+    toMap (i, (_, mV)) = do
+        v <- mV
+        pure (names!i, fmap (names!) v)
 
     value = (names!) <$> val
-    names = assignNames (initialIdn . snd <$> env)
+    names = assignNames (P.valTag . fst <$> env)
+    envir = mapFromList $ catMaybes
+                        $ fmap toMap
+                        $ toList
+                        $ V.imap (,) env
 
-assignNames :: Vector Text -> Vector Text
+assignNames :: Vector Symb -> Vector Symb
 assignNames initialNms =
-    evalState (traverse f initialNms) (mempty :: Map Text Int)
+    evalState (traverse f initialNms) (mempty :: Map Symb Nat)
   where
-    f :: Text -> State (Map Text Int) Text
+    f :: Symb -> State (Map Symb Nat) Symb
     f nm = do
-        tab <- get
+        tab :: Map symb Nat <- get
         let used = fromMaybe 1 (lookup nm nmCount)
         let sufx = fromMaybe 1 (lookup nm tab)
+        let rend = let ?rexColors = NoColors
+                   in rexLine (keyRex nm)
         put (insertMap nm (sufx+1) tab)
-        pure $ case (used, nm) of ( 1 , "" ) -> "_"
-                                  ( 1 , _  ) -> nm
-                                  ( _ , "" ) -> "_/" <> tshow sufx
-                                  ( _ , _  ) -> nm <> "/" <> tshow sufx
-                                             -- TODO Can't be a string.
 
-    nmCount :: Map Text Int
+        let taken :: Nat -> Bool
+            taken c = member c nmCount || member c tab
+
+        let loop :: Nat -> State (Map Symb Nat) Symb
+            loop n = do
+                let candidate = utf8Nat (rend <> "_" <> tshow n)
+                if (taken candidate)
+                then loop (n+1)
+                else do put $ insertMap nm (n+1)
+                            $ insertMap candidate 1
+                            $ tab
+                        pure candidate
+
+        if used==1
+            then pure nm
+            else loop sufx
+
+    nmCount :: Map Symb Int
     nmCount = foldr (alterMap (Just . maybe 1 succ)) mempty initialNms
+
+{-
+            ( 1 , "" ) -> "_"
+            ( 1 , _  ) -> nm
+            ( _ , "" ) -> "_/" <> tshow sufx
+            ( _ , _  ) -> nm <> "/" <> tshow sufx
+            -- TODO Can't be a string.
+-}
 
 -- Plun Backend ----------------------------------------------------------------
 
-type Pln = P.Val
+type Load = State (Int, Map ByteString Int, [(Pln, Maybe (Val Int))])
 
-type GetPlun v = State (Int, Map ByteString Int, [(v, Val Int)])
-
-valPlun :: Val P.Val -> P.Val
+valPlun :: Val Pln -> Pln
 valPlun (NAT a)          = AT a
 valPlun (REF v)          = v
 valPlun (APP f x)        = valPlun f %% valPlun x
@@ -280,11 +303,11 @@ valPlun (TAB t)          = P.nodVal $ P.DAT $ P.TAB $ fmap valPlun t
 valPlun (CAB k) | null k = P.nodVal $ P.DAT $ P.TAB mempty
 valPlun (CAB k)          = P.nodVal $ P.DAT $ P.CAB k
 
-plunAlias :: P.Val -> Maybe (Val P.Val)
-plunAlias (P.VAL _ P.PIN{}) = Nothing
-plunAlias (P.VAL _ topNod)  = Just (nod topNod)
+plunAlias :: Pln -> Maybe (Val Pln)
+plunAlias (PLN _ P.PIN{}) = Nothing
+plunAlias (PLN _ topNod)  = Just (nod topNod)
   where
-    go (P.VAL _ n) = nod n
+    go (PLN _ n) = nod n
     nod = \case
         n@P.PIN{}       -> REF (P.nodVal n)
         P.NAT a         -> NAT a
@@ -296,18 +319,57 @@ plunAlias (P.VAL _ topNod)  = Just (nod topNod)
         P.APP f x       -> APP (nod f) (go x)
         P.LAW P.L{..}   -> LAW lawName lawArgs (valBod lawArgs $ go lawBody)
 
--- TODO This is very slow, directly implementing shallow load should
--- be pretty easy.  Just do it.
-plunShallow :: Pln -> Closure Pln
-plunShallow = makeShallow . plunClosure
-
-plunClosure :: P.Val -> Closure P.Val
-plunClosure inVal =
-    let (top, (_,_,stk)) = runState (go inVal) (0, mempty, [])
-    in CLOSURE (fmap (over _2 Right) $ fromList $ reverse stk) top
+loadShallow :: Pln -> Closure
+loadShallow inVal =
+    let (top, (_,_,stk)) = runState (goTop inVal) (0, mempty, [])
+    in CLOSURE (fromList $ reverse stk) top
   where
-    go :: P.Val -> GetPlun P.Val (Val Int)
-    go (P.VAL _ nod) =
+    goTop :: Pln -> Load (Val Int)
+    goTop (PLN _ (P.PIN i)) = REF <$> goTopPin i
+    goTop vl                = go vl
+
+    goTopPin :: P.Pin -> Load Int
+    goTopPin P.P{..} = do
+        kor <- (pinItem,) . Just <$> goTop pinItem
+        (nex, tab, stk) <- get
+        let tab' = insertMap pinHash nex tab
+        put (nex+1, tab', kor:stk)
+        pure nex
+
+    go :: Pln -> Load (Val Int)
+    go (PLN _ nod) =
+        case nod of
+            P.NAT a         -> pure (NAT a)
+            P.DAT (P.BAR b) -> pure (BAR b)
+            P.DAT (P.ROW r) -> ROW <$> traverse go r
+            P.DAT (P.TAB t) -> TAB <$> traverse go t
+            P.DAT (P.COW n) -> pure (COW n)
+            P.DAT (P.CAB n) -> pure (CAB n)
+            P.APP f x       -> APP <$> go (P.nodVal f) <*> go x
+            P.PIN b         -> REF <$> goPin b
+            P.LAW (P.L{..}) -> do
+                b <- go lawBody
+                pure $ LAW lawName lawArgs (valBod lawArgs b)
+
+    goPin :: P.Pin -> Load Int
+    goPin P.P{..} = do
+        (_, tabl, _) <- get
+        case lookup pinHash tabl of
+            Just i -> pure i
+            Nothing -> do
+                let kor = (pinItem, Nothing)
+                (nex, tab, stk) <- get
+                let tab' = insertMap pinHash nex tab
+                put (nex+1, tab', kor:stk)
+                pure nex
+
+loadClosure :: Pln -> Closure
+loadClosure inVal =
+    let (top, (_,_,stk)) = runState (go inVal) (0, mempty, [])
+    in CLOSURE (fromList $ reverse stk) top
+  where
+    go :: Pln -> Load (Val Int)
+    go (PLN _ nod) =
         case nod of
             P.NAT a         -> pure (NAT a)
             P.DAT (P.BAR b) -> pure (BAR b)
@@ -323,27 +385,41 @@ plunClosure inVal =
 
     goCel x y = APP <$> go x <*> go y
 
-    goPin :: P.Pin -> GetPlun P.Val Int
+    goPin :: P.Pin -> Load Int
     goPin P.P{..} = do
         (_, tabl, _) <- get
         case lookup pinHash tabl of
             Just i -> pure i
             Nothing -> do
-                kor <- (pinItem,) <$> go pinItem
+                kor <- (pinItem,) . Just <$> go pinItem
                 (nex, tab, stk) <- get
                 let tab' = insertMap pinHash nex tab
                 put (nex+1, tab', kor:stk)
                 pure nex
 
+-- 0, 1, ...
+-- (0 f x)
+-- (1 v b)
+-- (2 c)
+isPlnCodeShaped :: Nat -> Pln -> Bool
+isPlnCodeShaped maxArg = loop
+  where
+    loop = \case
+        AT n              -> n <= maxArg
+        P.NAT 0 :& _ :# _ -> True
+        P.NAT 1 :& _ :# _ -> True
+        P.NAT 2 :# _      -> True
+        _                 -> False
+
 -- TODO Better to return (Val P.Pin), but dont want to add another
 -- type varibale to the Backend abstration.  Once we kill the abstraction,
 -- then we should simplify this.
-plunVal :: P.Val -> Val P.Val
+plunVal :: Pln -> Val Pln
 plunVal = goVal
   where
-    goVal (P.VAL _ n) = goNod n
+    goVal (PLN _ n) = goNod n
 
-    goNod :: P.Nod -> Val P.Val
+    goNod :: P.Nod -> Val Pln
     goNod = \case
         vl@P.PIN{}       -> REF (P.nodVal vl)
         P.NAT a          -> NAT a
@@ -364,10 +440,10 @@ hashPath :: FilePath -> ByteString -> FilePath
 hashPath dir haz =
     (dir <> "/" <> (unpack $ encodeBtc haz))
 
-plunSave :: MonadIO m => FilePath -> P.Val -> m ByteString
+plunSave :: MonadIO m => FilePath -> Pln -> m ByteString
 plunSave dir = liftIO . \case
-    P.VAL _ (P.PIN p) -> savePin p
-    vl                -> P.mkPin' vl >>= savePin
+    PLN _ (P.PIN p) -> savePin p
+    vl              -> P.mkPin' vl >>= savePin
   where
     savePin (P.P{..}) = do
         createDirectoryIfMissing True dir
@@ -385,7 +461,7 @@ plunSave dir = liftIO . \case
 
         pure pinHash
 
-plunLoad :: MonadIO m => FilePath -> ByteString -> m P.Val
+plunLoad :: MonadIO m => FilePath -> ByteString -> m Pln
 plunLoad dir key = liftIO do
     book <- P.stBook <$> readIORef P.state
     case lookup key book of
@@ -403,7 +479,7 @@ loadDeps dir key = do
     parseDeps bs | null bs = []
     parseDeps bs           = take 32 bs : parseDeps (drop 32 bs)
 
-loadSnapshotDisk :: FilePath -> ByteString -> IO P.Val
+loadSnapshotDisk :: FilePath -> ByteString -> IO Pln
 loadSnapshotDisk dir key = do
     createDirectoryIfMissing True dir
     let pax = hashPath dir key

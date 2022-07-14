@@ -1,6 +1,5 @@
-{-# OPTIONS_GHC -Wall #-}
+{-# OPTIONS_GHC -Wall   #-}
 {-# OPTIONS_GHC -Werror #-}
-{-# LANGUAGE ImplicitParams #-}
 
 {-
 
@@ -17,25 +16,32 @@
 -}
 
 module Rex.Print
-    ( blocksFile
+    ( RexColorScheme(..)
+    , RexColor
+    , blocksFile
     , rexFile
-    , rexFileColor
+    , rexFileBuilder
     , rexLine
-    , rexLineColor
-    , RexColoring(..)
-    , boldColoring
-    , noColoring
+    , rexLineBuilder
     )
 where
 
 import PlunderPrelude
 import Rex.Types
 
+import Rex.Lexer (isName)
+
 import qualified Data.Text    as T
 import qualified Text.Builder as TB
 
 --------------------------------------------------------------------------------
 
+data RexColorScheme
+    = NoColors
+    | BoldColors
+  deriving (Eq, Ord, Show)
+
+-- TODO What's the difference between TB.Builder and TextBuilder?
 data RexColoring = RC
     { rcOpen :: Text -> TB.Builder
     , rcRune :: Text -> TB.Builder
@@ -76,31 +82,68 @@ boldColoring = RC
     lightRune "." = True
     lightRune _   = False
 
-cNest :: (?color :: RexColoring) => TB.Builder -> TB.Builder
-cNest = rcNest where RC{..} = ?color
+rc :: RexColorScheme -> RexColoring
+rc NoColors   = noColoring
+rc BoldColors = boldColoring
 
-cRune :: (?color :: RexColoring) => Text -> TB.Builder
-cRune rune = rcRune rune where RC{..} = ?color
+type RexColor = (?rexColors :: RexColorScheme)
 
-cOpen :: (?color :: RexColoring) => Text -> TB.Builder
-cOpen rune = rcOpen rune where RC{..} = ?color
+cNest :: RexColor => TB.Builder -> TB.Builder
+cNest = rcNest where RC{..} = rc ?rexColors
 
-cText :: (?color :: RexColoring) => TB.Builder -> TB.Builder
-cText = rcText where RC{..} = ?color
+cRune :: RexColor => Text -> TB.Builder
+cRune rune = rcRune rune where RC{..} = rc ?rexColors
 
-cBare :: (?color :: RexColoring) => TB.Builder -> TB.Builder
-cBare = rcBare where RC{..} = ?color
+cOpen :: RexColor => Text -> TB.Builder
+cOpen rune = rcOpen rune where RC{..} = rc ?rexColors
+
+cText :: RexColor => TB.Builder -> TB.Builder
+cText = rcText where RC{..} = rc ?rexColors
+
+cBare :: RexColor => TB.Builder -> TB.Builder
+cBare = rcBare where RC{..} = rc ?rexColors
 
 -- Expression ------------------------------------------------------------------
 
-wideLeaf :: (?color :: RexColoring) => TextShape -> Text -> TB.Builder
-wideLeaf = f
+{-
+    This presumes that the input is not a LINE and that it is quote-safe.
+-}
+wideLeaf :: RexColor => TextShape -> Text -> TB.Builder
+wideLeaf = curry \case
+    (BARE_WORD, t) -> cBare (TB.text t)
+    (THIN_CORD, t) -> cText (cord '\'' t)
+    (THIC_CORD, t) -> cText (cord '"' t)
+    (THIN_LINE, _) -> error "Impossible"
+    (THIC_LINE, _) -> error "Impossible"
   where
-    f BARE_WORD t = cBare (TB.text t)
-    f THIN_CORD t = cText (TB.char '\'' <> TB.text t <> TB.char '\'')
-    f THIC_CORD t = cText (TB.char '"'  <> TB.text t <> TB.char '"')
-    f THIN_LINE t = f THIN_CORD t -- Coerce to wide form.
-    f THIC_LINE t = f THIC_CORD t -- Coerce to wide form.
+    cord esc txt = TB.char esc <> TB.text txt <> TB.char esc
+
+{-
+   TOOD Test this.
+-}
+fixWide :: TextShape -> Text -> Maybe Rex
+fixWide THIN_LINE t = Just (T THIN_CORD t Nothing)
+fixWide THIC_LINE t = Just (T THIC_CORD t Nothing)
+fixWide BARE_WORD t =
+    if isName t
+    then Nothing
+    else Just (T THIN_CORD t Nothing)
+
+fixWide THIC_CORD t =
+    case (elem '"' t, elem '\'' t) of
+        (False, _) -> Nothing
+        (_, False) -> Just (T THIN_CORD t Nothing)
+        (_, _)     -> let (x,qy) = T.breakOn "\"" t
+                          y = drop 1 qy
+                      in Just (T THIC_CORD x $ Just $ T THIC_CORD y $ Nothing)
+
+fixWide THIN_CORD t =
+    case (elem '"' t, elem '\'' t) of
+        (_, False) -> Nothing
+        (False, _) -> Just (T THIC_CORD t Nothing)
+        (_, _)     -> let (x,qy) = T.breakOn "'" t
+                          y = drop 1 qy
+                      in Just (T THIN_CORD x $ Just $ T THIN_CORD y $ Nothing)
 
 isShut :: Rex -> Bool
 isShut (N SHUT_PREFIX  _ _ _) = True
@@ -108,31 +151,40 @@ isShut (N SHUT_INFIX   _ _ _) = True
 isShut (C v _)                = absurd v
 isShut _                      = False
 
-rexLine :: Rex -> Text
-rexLine = rexLineColor noColoring
-
-rexLineColor :: RexColoring -> Rex -> Text
-rexLineColor color =
-  let ?color = color
-  in TB.run . rexLine'
+rexLine :: RexColor => Rex -> Text
+rexLine = TB.run . rexLine'
 
 {-
   TODO Some combinations of shut forms do not need to be wrapped.
 -}
-wrapRex :: (?color :: RexColoring) => Rex -> TB.Builder
+wrapRex :: RexColor => Rex -> TB.Builder
 wrapRex x | isShut x = cNest "(" <> rexLine' x <> cNest ")"
 wrapRex x            = rexLine' x
 
-rexLine' :: (?color :: RexColoring) => Rex -> TB.Builder
+wrapHeir :: RexColor => Rex -> TB.Builder
+wrapHeir x@(N SHUT_PREFIX _ _ _) = wrapRex x
+wrapHeir x                       = rexLine' x
+
+rexLineBuilder :: RexColor => Rex -> TB.Builder
+rexLineBuilder = rexLine'
+
+parens :: RexColor => [TB.Builder] -> TB.Builder
+parens []  = cNest "{}"
+parens [x] = cNest "{" <> x <> cNest "}"
+parens xs  = cNest "(" <> intercalate " " xs <> cNest ")"
+
+rexLine' :: RexColor => Rex -> TB.Builder
 rexLine' = go
  where
 
   go :: Rex -> TB.Builder
   go = \case
-    T s t Nothing         -> wideLeaf s t
-    T s t (Just k)        -> wideLeaf s t <> go k -- TODO Wrap if necessary.
+    T s t Nothing         -> case fixWide s t of
+                                 Nothing -> wideLeaf s t
+                                 Just rx -> go rx
+    T s t (Just k)        -> go (T s t Nothing) <> wrapHeir k
     N OPEN  r ps k        -> go (N NEST_PREFIX r ps k)
-    N s     r ps (Just k) -> wrapRex (N s r ps Nothing) <> go k
+    N s     r ps (Just k) -> wrapRex (N s r ps Nothing) <> wrapHeir k
     C c _                 -> absurd c
     N s     r ps Nothing  ->
       case s of
@@ -140,24 +192,15 @@ rexLine' = go
         SHUT_INFIX  -> intercalate (cRune r) (wrapRex <$> ps)
         NEST_INFIX  -> parens $ intersperse (cRune r) (infixApp <$> ps)
         NEST_PREFIX -> case r of
-          "|" -> brackets (fancyTail ps)
-          "," -> curlies (go <$> ps)
-          _   -> brackets (cRune r : fmap go ps)
-
-  fancyTail []                              = []
-  fancyTail [x]                             = [go x]
-  fancyTail [x, N NEST_PREFIX r ps Nothing] = go x : cRune r : fancyTail ps
-  fancyTail (x:y:z)                         = go x : fancyTail (y:z)
-
-  parens :: [TB.Builder] -> TB.Builder
-  parens [] = cNest "[]"
-  parens xs = cNest "(" <> intercalate " " xs <> cNest ")"
-
-  brackets :: [TB.Builder] -> TB.Builder
-  brackets xs = cNest "[" <> intercalate " " xs <> cNest "]"
+          "|" -> parens (go <$> ps)
+          "," -> brackets (go <$> ps)
+          _   -> curlies (cRune r : fmap go ps)
 
   curlies :: [TB.Builder] -> TB.Builder
   curlies xs = cNest "{" <> intercalate " " xs <> cNest "}"
+
+  brackets :: [TB.Builder] -> TB.Builder
+  brackets xs = cNest "[" <> intercalate " " xs <> cNest "]"
 
   infixApp :: Rex -> TB.Builder
   infixApp x@T{}   = go x
@@ -174,20 +217,18 @@ rexLine' = go
               _                          -> False
 
 {-
-
-""" x
-""" y
-| x y z
-| x y z
-""" x
-""" y
-| x y z
-| x y z
-9
-
+    """ x
+    """ y
+    | x y z
+    | x y z
+    """ x
+    """ y
+    | x y z
+    | x y z
+    9
 -}
 
-openLeaf :: (?color :: RexColoring) => Int -> TextShape -> Text -> Maybe Rex -> TB.Builder
+openLeaf :: RexColor => Int -> TextShape -> Text -> Maybe Rex -> TB.Builder
 openLeaf = end
  where
   end :: Int -> TextShape -> Text -> Maybe Rex -> TB.Builder
@@ -199,7 +240,7 @@ openLeaf = end
 
   end _ THIC_LINE t Nothing = cText (TB.text "\"\"\"" <> TB.text t)
   end _ THIN_LINE t Nothing = cText (TB.text "'''"    <> TB.text t)
-  end _ s         t Nothing = wideLeaf s t
+  end _ s         t Nothing = rexLine' (T s t Nothing)
 
   wrapRexLine :: Leaf -> Rex -> TB.Builder
   wrapRexLine l r = if safeJuxtapose l r
@@ -229,115 +270,115 @@ open (N OPEN _ _ _) = True
 open _              = False
 
 -- TODO Don't always need the extra newline.
-blocksFile :: (?color :: RexColoring) => [Rex] -> Text
+blocksFile :: RexColor => [Rex] -> Text
 blocksFile = loop ""
  where
   loop acc []     = TB.run acc
   loop acc [x]    = loop (acc <> rexFileBuilder x) []
   loop acc (x:xs) = loop (acc <> rexFileBuilder x <> "\n") xs
 
-rexFile :: Rex -> Text
-rexFile = rexFileColor noColoring
+rexFile :: RexColor => Rex -> Text
+rexFile = TB.run . rexFileBuilder
 
-rexFileColor :: RexColoring -> Rex -> Text
-rexFileColor rc rex = TB.run (rexFileBuilder rex)
-                                where ?color = rc
-
-rexFileBuilder :: (?color :: RexColoring) => Rex -> TB.Builder
+rexFileBuilder :: RexColor => Rex -> TB.Builder
 rexFileBuilder rex = rexFileGo 0 rex <> "\n"
 
-rexFileGo :: (?color :: RexColoring) => Int -> Rex -> TB.Builder
+rexFileGo :: RexColor => Int -> Rex -> TB.Builder
 rexFileGo = igo
- where
-  igo :: Int -> Rex -> TB.Builder
-  igo d x                      = indent d <> go d x
+  where
+    igo :: Int -> Rex -> TB.Builder
+    igo d x = indent d <> go d x
 
-  go :: Int -> Rex -> TB.Builder
-  go d (T s t k)              = openLeaf d s t k
+    go :: Int -> Rex -> TB.Builder
+    go d (T s t k) = openLeaf d s t k
 
-  -- TODO Generalize (I want this behavior now, but code is too complex,
-  -- so I'm hacking it)
-  go d (N OPEN r [p,q] mK)       | isOpen p && length r < 3
-                                 = cOpen r
-                                <> TB.text (T.replicate (6 - length r) " ")
-                                <> go (d+6) p
-                                <> "\n"
-                                <> igo (d+3) q
-                                <> case mK of
-                                     Nothing -> ""
-                                     Just k  -> "\n" <> igo d k
+    -- TODO Generalize (I want this behavior now, but code is too complex,
+    -- so I'm hacking it)
+    go d (N OPEN r [p,q] mK) | isOpen p && length r < 3
+                             = cOpen r
+                            <> TB.text (T.replicate (6 - length r) " ")
+                            <> go (d+6) p
+                            <> "\n"
+                            <> igo (d+3) q
+                            <> case mK of
+                                   Nothing -> ""
+                                   Just k  -> "\n" <> igo d k
 
-  go d (N OPEN r [p] mK)       | isOpen p && length r < 3
-                                = cOpen r
-                               <> TB.text (T.replicate (3 - length r) " ")
-                               <> go (d+3) p
-                               <> case mK of
-                                      Nothing -> ""
-                                      Just k  -> "\n" <> igo d k
-  go d (N OPEN r ps Nothing)  = cOpen r <> args False (d+3) ps
-  go d (N OPEN r ps (Just k)) = cOpen r <> args True d (ps<>[k])
-  go _ x@N{}                  = rexLine' x
-  go _ x@C{}                  = rexLine' x
+    go d (N OPEN r [p] mK) | isOpen p && length r < 3
+                           = cOpen r
+                          <> TB.text (T.replicate (3 - length r) " ")
+                          <> go (d+3) p
+                          <> case mK of
+                                 Nothing -> ""
+                                 Just k  -> "\n" <> igo d k
 
-  cont :: Int -> Int -> [Rex] -> TB.Builder
-  cont _   _   []     = ""
-  cont dep len (x:xs) = concat [ "\n"
-                               , igo (dep + 3*len) x
-                               , cont dep (len-1) xs
-                               ]
+    go d (N OPEN r ps Nothing)  = cOpen r <> args False (d+3) ps
+    go d (N OPEN r ps (Just k)) = cOpen r <> args True d (ps<>[k])
+    go _ x@N{}                  = rexLine' x
+    go _ x@C{}                  = rexLine' x
+
+    cont :: Int -> Int -> [Rex] -> TB.Builder
+    cont _   _   []     = ""
+    cont dep len (x:xs) = concat [ "\n"
+                                 , igo (dep + 3*len) x
+                                 , cont dep (len-1) xs
+                                 ]
 
 
-  stackClosed :: Int -> [Rex] -> TB.Builder
-  stackClosed _     []    = ""
-  stackClosed depth (x:xs) = concat [ "\n"
-                                    , igo depth x
-                                    , stackClosed depth xs
-                                    ]
+    stackClosed :: Int -> [Rex] -> TB.Builder
+    stackClosed _     []    = ""
+    stackClosed depth (x:xs) = concat [ "\n"
+                                      , igo depth x
+                                      , stackClosed depth xs
+                                      ]
 
-  isOpen (N OPEN _ _ _) = True
-  isOpen _              = False
+    isOpen (N OPEN _ _ _) = True
+    isOpen _              = False
 
-  -- TODO Rewrite this mess.
-  args ::  Bool -> Int -> [Rex] -> TB.Builder
-  args hasCont depth children =
-    case children of
-      []              -> arg hasCont depth children
-      [_]             -> arg hasCont depth children
-      _:_:_ | hasCont ->
-        let Just (childs@(c:cs), k) = unsnoc children
-            thisWidth = length cs + sum (TB.length . rexLine' <$> childs)
-            thisNarrow = thisWidth <= (60-(depth+3))
-        in
-            case (any isOpen childs, thisNarrow) of
-              (True, _) ->
-                arg hasCont depth children
-              (_, True) ->
-                 let hed = arg False (depth+3) childs
-                 in hed <> "\n" <> igo depth k
-              (_, False) ->
-                 let stk = " " <> rexLine' c <> stackClosed (depth+3) cs
-                 in stk <> "\n" <> igo depth k
-      _ | narrow  -> arg hasCont depth children
-      _ | anyOpen -> arg hasCont depth children
-      c:cs        -> " " <> rexLine' c <> stackClosed depth cs
-   where
-    lineWidth = length children + sum (TB.length . rexLine' <$> children)
-    narrow    = lineWidth <= (60-(depth+3))
+    -- TODO Rewrite this mess.
+    args ::  Bool -> Int -> [Rex] -> TB.Builder
+    args hasHeir depth children =
+      case children of
+        []              -> arg hasHeir depth children
+        [_]             -> arg hasHeir depth children
+        _:_:_ | hasHeir ->
+          let Just (childs@(c:cs), k) = unsnoc children
+              thisWidth = length cs + sum (TB.length . rexLine' <$> childs)
+              thisNarrow = thisWidth <= (60-(depth+3))
+          in
+              case (any isOpen childs, thisNarrow) of
+                (True, _) ->
+                  arg hasHeir depth children
+                (_, True) ->
+                   let hed = arg False (depth+3) childs
+                   in hed <> "\n" <> igo depth k
+                (_, False) ->
+                   let stk = " " <> rexLine' c <> stackClosed (depth+3) cs
+                   in stk <> "\n" <> igo depth k
+        _ | narrow  -> arg hasHeir depth children
+        _ | anyOpen -> arg hasHeir depth children
+        c:cs        -> " " <> rexLine' c <> stackClosed depth cs
+     where
+      lineWidth = length children + sum (TB.length . rexLine' <$> children)
+      narrow    = lineWidth <= (60-(depth+3))
 
-    anyOpen = any isOpen children
+      anyOpen = any isOpen children
 
-  arg :: Bool -> Int -> [Rex] -> TB.Builder
-  arg hasCont depth children =
-    r hasCont depth children
-   where
-    r :: Bool -> Int -> [Rex] -> TB.Builder
-    r _     _ []                        = ""
-    r True  d [a]                       = "\n" <> igo d a
-    r False _ [T s t Nothing]  | lean s = " " <> wideLeaf s t
-    r True  d [T s t _,k]      | lean s = " " <> wideLeaf s t <> "\n" <> igo d k
-    r _     d (a@N{} : as)     | open a = cont d (length as) (a:as)
-    r _     d (a@(T s _ _):as) | fat s  = cont d (length as) (a:as)
-    r f     d (a:as)                    = " " <> rexLine' a <> r f d as
+    arg :: Bool -> Int -> [Rex] -> TB.Builder
+    arg hasHeir depth children =
+      r hasHeir depth children
+     where
+      r :: Bool -> Int -> [Rex] -> TB.Builder
+      r _     _ []                        = ""
+      r True  d [a]                       = "\n" <> igo d a
+      r False _ [T s t Nothing]  | lean s = " " <> wl s t
+      r True  d [T s t _,k]      | lean s = " " <> wl s t <> "\n" <> igo d k
+        -- TODO Why is cord continuation ignored?
+      r _     d (a@N{} : as)     | open a = cont d (length as) (a:as)
+      r _     d (a@(T s _ _):as) | fat s  = cont d (length as) (a:as)
+      r f     d (a:as)                    = " " <> rexLine' a <> r f d as
+
+      wl s t = rexLine' (T s t Nothing)
 
 {-
   What formatting decisions do we make?

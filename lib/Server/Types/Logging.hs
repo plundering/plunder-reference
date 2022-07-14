@@ -6,7 +6,7 @@ import Control.Concurrent.STM.TBMQueue
 import Data.Vector
 import Numeric.Natural                 (Natural)
 
-import qualified Plun as P
+import Plun (Pln)
 
 -- A machine, a set of related processes, are given a human readable name.
 newtype MachineName = MachineName String
@@ -27,7 +27,7 @@ data Receipt
   -- request row to cause future events to run.
   = ReceiptInit {
     initPidx :: ProcessIdx,
-    initVal  :: P.Val
+    initVal  :: Pln
     }
 
   -- Receipt of a %fork. This receipt indicates that we started a new process
@@ -43,7 +43,7 @@ data Receipt
   | ReceiptVal {
       receiptPidx :: ProcessIdx,
       receiptIdx  :: RequestIdx,
-      receiptVal  :: P.Val
+      receiptVal  :: Pln
       }
 
   -- Local receive which can refer to an outstanding send request.
@@ -68,7 +68,7 @@ newtype BatchNum = BatchNum { unBatchNum :: Natural }
 
 -- A snapshot is all the ship values implicitly identified by index, with 0
 -- values representing unused indexes.
-data Snapshot = Snapshot (Vector P.Val)
+data Snapshot = Snapshot (Vector Pln)
   deriving (Show)
 
 data LogBatch = LogBatch {

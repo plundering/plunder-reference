@@ -28,7 +28,7 @@ import Crypto.Sign.Ed25519   (createKeypair, toPublicKey)
 import Data.Bits             (shiftR, (.|.))
 import Data.Time.Clock       (nominalDiffTimeToSeconds)
 import Data.Time.Clock.POSIX (POSIXTime, getPOSIXTime)
-import Plun                  (pattern AT, Val, (%%))
+import Plun                  (pattern AT, Pln(PLN), (%%))
 import Plun.Print            (encodeBtc)
 import System.Entropy        (getEntropy)
 
@@ -46,21 +46,21 @@ instance Show Pub where
   show = show . take 4 . encodeBtc . unPublicKey . unpub
 
 data Inq = INQ
-    { inqWhen :: TMVar (Nat, Val)
-    , inqSend :: TMVar (Nat, Val)
-    , inqRecv :: TMVar (Nat, Val)
-    , inqWait :: TMVar (Nat, Val)
-    , inqFork :: TMVar (Nat, Val)
-    , inqKGen :: TMVar (Nat, Val)
-    , inqRand :: TMVar (Nat, Val)
+    { inqWhen :: TMVar (Nat, Pln)
+    , inqSend :: TMVar (Nat, Pln)
+    , inqRecv :: TMVar (Nat, Pln)
+    , inqWait :: TMVar (Nat, Pln)
+    , inqFork :: TMVar (Nat, Pln)
+    , inqKGen :: TMVar (Nat, Pln)
+    , inqRand :: TMVar (Nat, Pln)
     }
 
 data Request
-    = SEND Key Pub Val
+    = SEND Key Pub Pln
     | RECV Key (Set Pub)
     | WHEN
     | WAIT Nat -- Wen
-    | FORK Val
+    | FORK Pln
     | RAND
     | KGEN
  deriving (Show)
@@ -80,12 +80,12 @@ data Ship = SHIP
     , shipNextSonId :: !Nat
     , shipInputQs   :: !Inq
     , shipNumReqs   :: !Int
-    , shipRequests  :: !(SmallMutableArray RealWorld (Val, Maybe (Async ())))
-    , shipNoun      :: !Val
+    , shipRequests  :: !(SmallMutableArray RealWorld (Pln, Maybe (Async ())))
+    , shipNoun      :: !Pln
     }
   deriving (Generic)
 
-type MSend = (Pub, Val, MVar ())
+type MSend = (Pub, Pln, MVar ())
 
 type KingState = Map Text (Inq, Async Void)
 
@@ -101,34 +101,34 @@ makeFieldLabels ''Ship
 nanosSinceEpoch :: POSIXTime -> Nat
 nanosSinceEpoch = floor . (1e9 *) . nominalDiffTimeToSeconds
 
-getNat :: Val -> Maybe Nat
+getNat :: Pln -> Maybe Nat
 getNat (AT n) = Just n
 getNat _      = Nothing
 
-getBlob :: Val -> Maybe ByteString
-getBlob (P.VAL _ (P.DAT (P.BAR n))) = Just n
-getBlob _                           = Nothing
+getBlob :: Pln -> Maybe ByteString
+getBlob (PLN _ (P.DAT (P.BAR n))) = Just n
+getBlob _                         = Nothing
 
-getPublicKey :: Val -> Maybe Pub
+getPublicKey :: Pln -> Maybe Pub
 getPublicKey v = do
     b <- getBlob v
     guard (length b == 32)
     pure (PUB $ PublicKey b)
 
-getSecretKey :: Val -> Maybe Key
+getSecretKey :: Pln -> Maybe Key
 getSecretKey v = do
     b <- getBlob v
     guard (length b == 64)
     pure (KEY $ SecretKey b)
 
-getCell :: Val -> Maybe (Val, Val)
-getCell (P.VAL _ (P.APP h t)) = Just (P.nodVal h, t)
-getCell _                     = Nothing
+getCell :: Pln -> Maybe (Pln, Pln)
+getCell (PLN _ (P.APP h t)) = Just (P.nodVal h, t)
+getCell _                   = Nothing
 
-getRequests :: Val -> Maybe (Vector Val)
+getRequests :: Pln -> Maybe (Vector Pln)
 getRequests = getCell >=> (P.getRow . snd)
 
-getReq :: Val -> Maybe Request
+getReq :: Pln -> Maybe Request
 getReq n = do
     (toList <$> P.getRow n) >>= \case
         [AT 1852139639]           -> pure WHEN
@@ -195,7 +195,7 @@ execFx = do
 
 unsafeCancelReq
     :: Int
-    -> SmallMutableArray RealWorld (Val, Maybe (Async ()))
+    -> SmallMutableArray RealWorld (Pln, Maybe (Async ()))
     -> IO ()
 unsafeCancelReq key tab = do
     readSmallArray tab key >>= \case
@@ -203,7 +203,7 @@ unsafeCancelReq key tab = do
         (_, Just tid) -> cancel tid
     writeSmallArray tab key (AT 0, Nothing)
 
-newTopShip :: Text -> Maybe Text -> Val -> IO (Inq, Ship)
+newTopShip :: Text -> Maybe Text -> Pln -> IO (Inq, Ship)
 newTopShip name mPater val = do
     q <- atomically $ INQ <$> newEmptyTMVar
                           <*> newEmptyTMVar
@@ -225,7 +225,7 @@ newTopShip name mPater val = do
                        }
 
 
-launchShip :: MonadIO m => Text -> Text -> Val -> m ()
+launchShip :: MonadIO m => Text -> Text -> Pln -> m ()
 launchShip pater name val = liftIO $ do
     (q, initVal) <- newTopShip name (Just pater) val
 
@@ -235,7 +235,7 @@ launchShip pater name val = liftIO $ do
                $ insertMap name (q, tid)
 
 -- TODO Make sure this in priority order, and not "fair"
-getResponse :: MonadIO m => Inq -> m (Bool, (Nat, Val))
+getResponse :: MonadIO m => Inq -> m (Bool, (Nat, Pln))
 getResponse INQ{..} =
     liftIO $ atomically $ asum
         [ (True,)  <$> takeTMVar inqWhen -- current time
@@ -247,7 +247,7 @@ getResponse INQ{..} =
         , (False,) <$> takeTMVar inqRecv -- input message
         ]
 
-getResponse' :: (MonadIO m, MonadState Ship m) => m (Val, Val)
+getResponse' :: (MonadIO m, MonadState Ship m) => m (Pln, Pln)
 getResponse' = do
     inq <- use #inputQs
     (oneShot, (reqId, respVal)) <- getResponse inq
@@ -327,7 +327,7 @@ getOpenPort src dst = do
                       getOpenPort src dst
         Just mv -> pure mv
 
-pshow :: Val -> Text
+pshow :: Pln -> Text
 pshow v = unsafePerformIO $ do
     f <- readIORef P.vShowPlun
     f v
@@ -339,7 +339,7 @@ pshow v = unsafePerformIO $ do
     This is only called from `execFx`, and that grows the requests table
     before doing anything, so this should work.
 -}
-unsafeCreateReq :: (MonadIO m, MonadState Ship m) => Int -> Val -> m ()
+unsafeCreateReq :: (MonadIO m, MonadState Ship m) => Int -> Pln -> m ()
 unsafeCreateReq key reqVal = do
     que <- use #inputQs
     snm <- use #shipName

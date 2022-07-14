@@ -13,14 +13,14 @@ import qualified Data.Vector as V
 -- Quick, crappy conversion between nouns and server data structures.
 
 class ToNoun a where
-  toNoun :: a -> Val
+  toNoun :: a -> Pln
 
 class FromNoun a where
-  fromNoun :: Val -> Maybe a
+  fromNoun :: Pln -> Maybe a
 
-instance ToNoun Val where
+instance ToNoun Pln where
   toNoun = id
-instance FromNoun Val where
+instance FromNoun Pln where
   fromNoun = Just . id
 
 instance ToNoun Natural where
@@ -32,7 +32,7 @@ instance FromNoun Natural where
 instance ToNoun ByteString where
   toNoun = mkBar
 instance FromNoun ByteString where
-  fromNoun (VAL _ (DAT (BAR n))) = Just n
+  fromNoun (PLN _ (DAT (BAR n))) = Just n
   fromNoun  _                    = Nothing
 
 instance ToNoun String where
@@ -43,16 +43,16 @@ instance FromNoun String where
     Right t -> Just $ unpack t
   fromNoun _ = Nothing
 
-getRawRow :: Val -> Maybe (Vector Val)
-getRawRow (VAL _ (DAT (ROW xs))) = Just xs
+getRawRow :: Pln -> Maybe (Vector Pln)
+getRawRow (PLN _ (DAT (ROW xs))) = Just xs
 getRawRow _                      = Nothing
 
-getRawTable :: Val -> Maybe (Map Nat Val)
-getRawTable (VAL _ (DAT (TAB m))) = Just m
+getRawTable :: Pln -> Maybe (Map Nat Pln)
+getRawTable (PLN _ (DAT (TAB m))) = Just m
 getRawTable _                     = Nothing
 
 instance (ToNoun a) => ToNoun (Vector a) where
-  toNoun = VAL 1 . DAT . ROW . (fmap toNoun)
+  toNoun = PLN 1 . DAT . ROW . (fmap toNoun)
 
 instance (FromNoun a) => FromNoun (Vector a) where
   fromNoun n = getRawRow n >>= mapM fromNoun
@@ -108,10 +108,10 @@ instance ToNoun Receipt where
   toNoun ReceiptKill{..} =
     mkRow [AT 4, toNoun killPidxNotified, toNoun killIdx]
 
-parseAt :: FromNoun a => Vector Val -> Int -> Maybe a
+parseAt :: FromNoun a => Vector Pln -> Int -> Maybe a
 parseAt v i = v V.!? i >>= fromNoun
 
-getRaw :: Vector Val -> Int -> Maybe Val
+getRaw :: Vector Pln -> Int -> Maybe Pln
 getRaw = (V.!?)
 
 instance FromNoun Receipt where

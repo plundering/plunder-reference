@@ -11,6 +11,7 @@ module Rex.Lexer
     , Leaf(..)
     , isRuneChar
     , isNameChar
+    , isName
     )
 where
 
@@ -71,6 +72,9 @@ page = do
 isNameChar :: Char -> Bool
 isNameChar = (`elem` ("_" <> ['a'..'z'] <> ['A'..'Z'] <> ['0'..'9']))
 
+isName :: Text -> Bool
+isName t = not (null t) && all isNameChar t
+
 isRuneChar :: Char -> Bool
 isRuneChar = (`elem` ("$!#%&*+,-./:<=>?@\\^`|~" :: String))
 
@@ -86,7 +90,8 @@ cord = ((True,)  <$> cord' '"')
 
 para :: Parser Nest
 para = do
-    (pal >> spc0 >> faro) >>= \case
+    (pal >> spc0 >> boot) >>= \case
+        []        -> pure (PREFX "|" [])
         [Right f] -> pure (WRAPD f)
         is        ->
           case unravel [] is of
@@ -99,6 +104,7 @@ para = do
     (pal, par) = ( char '(' , char ')' )
     mixy = do { r <- try (rune <* whyt) ; (Left r :) <$> faro }
     term = par $> []
+    boot = term <|> faro
     faro = do
         i  <- Right <$> form
         is <- term <|> mixy <|> (whyt >> (term <|> mixy <|> faro))
@@ -123,7 +129,7 @@ runic :: Parser Char
 runic = label "runic" (satisfy isRuneChar)
 
 nest :: Parser Nest
-nest = curl <|> brak <|> para
+nest = brak <|> curl <|> para
 
 leaf :: Parser Leaf
 leaf = (uncurry C <$> cord) <|> (N <$> name)
@@ -131,10 +137,10 @@ leaf = (uncurry C <$> cord) <|> (N <$> name)
 nestForm :: Nest -> Form
 nestForm n = SHIP (NEST n :| [])
 
-brak :: Parser Nest
-brak = ravel <$> (char '[' >> spc0 >> (empt <|> brok))
+curl :: Parser Nest
+curl = ravel <$> (char '{' >> spc0 >> (empt <|> brok))
   where
-    empt = [] <$ char ']'
+    empt = [] <$ char '}'
 
     brok = (:) <$> frog <*> (empt <|> do{whyt; empt <|> brok})
 
@@ -156,10 +162,10 @@ frog = (rinse <$> rune <*> optional form)
     rinse :: Text -> Maybe Form -> Either Text Form
     rinse r = maybe (Left r) (Right . BEFO r)
 
-curl :: Parser Nest
-curl = char '{' >> spc0 >> (PREFX "," <$> (empt <|> carl))
+brak :: Parser Nest
+brak = char '[' >> spc0 >> (PREFX "," <$> (empt <|> carl))
   where
-    empt = [] <$ char '}'
+    empt = [] <$ char ']'
     carl = (:) <$> form <*> (empt <|> (do whyt; empt <|> carl))
 
 itmz :: Parser Itmz

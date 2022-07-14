@@ -1,2 +1,2 @@
 module Main (main) where
-import SireExe (main)
+import Sire.ReplExe (main)

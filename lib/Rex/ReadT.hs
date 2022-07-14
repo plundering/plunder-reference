@@ -10,6 +10,7 @@ module Rex.ReadT
     , Reading
     , doRead
     , matchLeaf, leaf, matchName, matchCord, matchPage
+    , matchLeafCont, matchNameCord, matchNameText
     , formMatch, formMatchNoCont, formMatchCont, formMatchEither
     , subTree
     , rune
@@ -188,6 +189,11 @@ matchLeaf expect f = READT \case
   x@(T s t Nothing) -> resty $ maybe (Expected [(x, expect)]) pure (f (s,t))
   x                 -> resty $ Expected [(x, expect)]
 
+matchLeafCont :: Monad m => Text -> (Leaf -> GRex z -> Maybe a) -> ReadT z m a
+matchLeafCont expect f = READT \case
+  x@(T s t (Just k)) -> resty $ maybe (Expected [(x, expect)]) pure (f (s,t) k)
+  x                  -> resty $ Expected [(x, expect)]
+
 leaf :: Monad m => ReadT z m Leaf
 leaf = matchLeaf "leaf" Just
 
@@ -195,6 +201,24 @@ matchName :: Monad m => Text -> (Text -> Maybe a) -> ReadT z m a
 matchName expect f = matchLeaf expect \case
   (BARE_WORD, n) -> f n
   _              -> Nothing
+
+matchNameCord :: Monad m => Text -> (Text -> Text -> Maybe a) -> ReadT z m a
+matchNameCord expect f =
+    matchLeafCont expect go
+  where
+    go (BARE_WORD, n) (T THIN_CORD t Nothing) = f n t
+    go (BARE_WORD, n) (T THIC_CORD t Nothing) = f n t
+    go _              _                       = Nothing
+
+matchNameText :: Monad m => Text -> (Text -> Text -> Maybe a) -> ReadT z m a
+matchNameText expect f =
+    matchLeafCont expect go
+  where
+    go (BARE_WORD, n) (T THIN_CORD t Nothing) = f n t
+    go (BARE_WORD, n) (T THIC_CORD t Nothing) = f n t
+    go (BARE_WORD, n) (T THIN_LINE t Nothing) = f n t
+    go (BARE_WORD, n) (T THIC_LINE t Nothing) = f n t
+    go _              _                       = Nothing
 
 matchCord :: Monad m => Text -> (Text -> Maybe a) -> ReadT z m a
 matchCord expect f = matchLeaf expect \case
@@ -216,7 +240,7 @@ formMatch f = READT \case
 formMatchNoCont :: Monad m => (GRex z -> [GRex z] -> ResultT z m c) -> ReadT z m c
 formMatchNoCont f = READT \case
   x@(N _ _ ps Nothing) -> f x ps
-  x@(N _ _ _  _)       -> resty $ Expected [(x, "no continuation")]
+  x@(N _ _ _  _)       -> resty $ Expected [(x, "no heir")]
   x                    -> resty $ Expected [(x, "runic")]
 
 formMatchCont
@@ -225,7 +249,7 @@ formMatchCont
 formMatchCont t f =
   formMatch \x (ps, mK) ->
     case mK of
-      Nothing -> resty $ Expected [(x, t <> " w/ continuation")]
+      Nothing -> resty $ Expected [(x, t <> " w/ heir")]
       Just k  -> f x (ps, k)
 
 formMatchEither
@@ -235,13 +259,13 @@ formMatchEither f =
   formMatch \x (ps, mK) -> f x (ps <> toList mK)
 
 
--- Expressions Without Continuation --------------------------------------------
+-- Expressions Without Heir ----------------------------------------------------
 
 form0 :: Monad m => ReadT z m ()
 form0 = formMatchNoCont \x ps ->
   case ps of
     [] -> pure ()
-    _  -> resty $ Expected [(x, "no params")]
+    _  -> resty $ Expected [(x, "no kids")]
 
 subTree :: Monad m => ReadT z m a -> GRex z -> ResultT z m a
 subTree f x = REST $ (commit <$> runResultT (runReadT f x))
@@ -250,19 +274,19 @@ form1 :: Monad m => ReadT z m a -> ReadT z m a
 form1 f = formMatchNoCont \x ps ->
   case ps of
     [p] -> subTree f p
-    _   -> resty $ Expected [(x, "one params")]
+    _   -> resty $ Expected [(x, "one kid")]
 
 form2 :: Monad m => ReadT z m a -> ReadT z m b -> ReadT z m (a, b)
 form2 f g = formMatchNoCont \x ps ->
   case ps of
     [p,q] -> (,) <$> subTree f p <*> subTree g q
-    _     -> resty $ Expected [(x, "two params")]
+    _     -> resty $ Expected [(x, "two kids")]
 
 form3 :: Monad m => ReadT z m a -> ReadT z m b -> ReadT z m c -> ReadT z m (a, b, c)
 form3 f g h = formMatchNoCont \x ps ->
   case ps of
   [p, q, r] -> (,,) <$> subTree f p <*> subTree g q <*> subTree h r
-  _         -> resty $ Expected [(x, "three params")]
+  _         -> resty $ Expected [(x, "three kids")]
 
 form4
     :: Monad m
@@ -274,7 +298,7 @@ form4 f g h i = formMatchNoCont \x ps ->
                         <*> subTree g q
                         <*> subTree h r
                         <*> subTree i s
-  _            -> resty $ Expected [(x, "four params")]
+  _            -> resty $ Expected [(x, "four kids")]
 
 formN :: Monad m => ReadT z m a -> ReadT z m [a]
 formN f = formMatchNoCont \_ ps -> traverse (subTree f) ps
@@ -283,15 +307,15 @@ form1N :: Monad m => ReadT z m a -> ReadT z m b -> ReadT z m (a, [b])
 form1N p q =
   formMatchNoCont $ \x ps ->
     case ps of
-      []   -> resty $ Expected [(x, "At least one parameter")]
+      []   -> resty $ Expected [(x, "At least one kid")]
       y:ys -> (,) <$> subTree p y <*> traverse (subTree q) ys
 
 form2N :: Monad m => ReadT z m a -> ReadT z m b -> ReadT z m c -> ReadT z m (a, b, [c])
 form2N p q r =
   formMatchNoCont $ \x ps ->
     case ps of
-      []     -> resty $ Expected [(x, "At least two parameters")]
-      [_]    -> resty $ Expected [(x, "At least two parameters")]
+      []     -> resty $ Expected [(x, "At least two kids")]
+      [_]    -> resty $ Expected [(x, "At least two kids")]
       y:z:ys -> (,,) <$> subTree p y <*> subTree q z <*> traverse (subTree r) ys
 
 
@@ -299,86 +323,86 @@ formN1 :: Monad m => ReadT z m a -> ReadT z m b -> ReadT z m ([a], b)
 formN1 p q =
   formMatchNoCont $ \x ps ->
     case reverse ps of
-      []   -> resty $ Expected [(x, "At least one parameter")]
+      []   -> resty $ Expected [(x, "At least one kid")]
       y:ys -> (,) <$> traverse (subTree p) (reverse ys) <*> subTree q y
 
 
--- Expressions With Continuation -----------------------------------------------
+-- Expressions With Heir -------------------------------------------------------
 
 form0C :: Monad m => ReadT z m a -> ReadT z m a
-form0C f = formMatchCont "no params" \x ps ->
+form0C f = formMatchCont "no kids" \x ps ->
   case ps of
     ([], k) -> subTree f k
-    _       -> resty $ Expected [(x, "no params")]
+    _       -> resty $ Expected [(x, "no kids")]
 
 form1C :: Monad m => ReadT z m a -> ReadT z m b -> ReadT z m (a,b)
-form1C f c = formMatchCont "one param" \x ps ->
+form1C f c = formMatchCont "one kid" \x ps ->
   case ps of
     ([p], k) -> (,) <$> subTree f p <*> subTree c k
-    _        -> resty $ Expected [(x, "one param")]
+    _        -> resty $ Expected [(x, "one kid")]
 
 form2C :: Monad m => ReadT z m a -> ReadT z m b -> ReadT z m c -> ReadT z m (a,b,c)
-form2C f g c = formMatchCont "two params" \x ps ->
+form2C f g c = formMatchCont "two kids" \x ps ->
   case ps of
     ([p,q], k) -> (,,) <$> subTree f p <*> subTree g q <*> subTree c k
-    _          -> resty $ Expected [(x, "two params")]
+    _          -> resty $ Expected [(x, "two kids")]
 
 form3C
     :: Monad m
     => ReadT z m a -> ReadT z m b -> ReadT z m c -> ReadT z m d -> ReadT z m (a,b,c,d)
-form3C f g h c = formMatchCont "three params" \x ps ->
+form3C f g h c = formMatchCont "three kids" \x ps ->
   case ps of
     ([p,q,r],k) -> (,,,) <$> subTree f p
                          <*> subTree g q
                          <*> subTree h r
                          <*> subTree c k
-    _           -> resty $ Expected [(x, "three params")]
+    _           -> resty $ Expected [(x, "three kids")]
 
 form4C
     :: Monad m
     => ReadT z m a -> ReadT z m b -> ReadT z m c -> ReadT z m d -> ReadT z m e
     -> ReadT z m (a, b, c, d, e)
-form4C f g h i c = formMatchCont "four params" \x ps ->
+form4C f g h i c = formMatchCont "four kids" \x ps ->
   case ps of
     ([p, q, r, s], k) -> (,,,,) <$> subTree f p
                                 <*> subTree g q
                                 <*> subTree h r
                                 <*> subTree i s
                                 <*> subTree c k
-    _                 -> resty $ Expected [(x, "four params")]
+    _                 -> resty $ Expected [(x, "four kids")]
 
 formNC
     :: Monad m
     => ReadT z m a -> ReadT z m b -> ReadT z m ([a], b)
-formNC f c = formMatchCont "params" \_ (ps,k) -> (,) <$> traverse (subTree f) ps
+formNC f c = formMatchCont "kids" \_ (ps,k) -> (,) <$> traverse (subTree f) ps
                                                      <*> subTree c k
 
 
--- Expressions With Optional Continuation --------------------------------------
+-- Expressions With Optional Heir ----------------------------------------------
 
 form0c :: Monad m => ReadT z m ()
 form0c = formMatchEither \x ps ->
   case ps of
     [] -> pure ()
-    _  -> resty $ Expected [(x, "no params")]
+    _  -> resty $ Expected [(x, "no kids")]
 
 form1c :: Monad m => ReadT z m a -> ReadT z m a
 form1c f = formMatchEither \x ps ->
   case ps of
     [p] -> subTree f p
-    _   -> resty $ Expected [(x, "one params")]
+    _   -> resty $ Expected [(x, "one kids")]
 
 form2c :: Monad m => ReadT z m a -> ReadT z m b -> ReadT z m (a, b)
 form2c f g = formMatchEither \x ps ->
   case ps of
     [p,q] -> (,) <$> subTree f p <*> subTree g q
-    _     -> resty $ Expected [(x, "two params")]
+    _     -> resty $ Expected [(x, "two kids")]
 
 form3c :: Monad m => ReadT z m a -> ReadT z m b -> ReadT z m c -> ReadT z m (a, b, c)
 form3c f g h = formMatchEither \x ps ->
   case ps of
     [p, q, r] -> (,,) <$> subTree f p <*> subTree g q <*> subTree h r
-    _         -> resty $ Expected [(x, "three params")]
+    _         -> resty $ Expected [(x, "three kids")]
 
 form4c
     :: Monad m
@@ -390,7 +414,7 @@ form4c f g h i = formMatchEither \x ps ->
                           <*> subTree g q
                           <*> subTree h r
                           <*> subTree i s
-    _            -> resty $ Expected [(x, "four params")]
+    _            -> resty $ Expected [(x, "four kids")]
 
 formNc :: Monad m => ReadT z m a -> ReadT z m [a]
 formNc f = formMatchEither \_ ps -> traverse (subTree f) ps
@@ -399,37 +423,37 @@ form1Nc :: Monad m => ReadT z m a -> ReadT z m b -> ReadT z m (a, [b])
 form1Nc p q =
   formMatchEither $ \x ps ->
     case ps of
-      []   -> resty $ Expected [(x, "At least one parameter")]
+      []   -> resty $ Expected [(x, "At least one kid")]
       y:ys -> (,) <$> subTree p y <*> traverse (subTree q) ys
 
 form1NC :: Monad m => ReadT z m a -> ReadT z m b -> ReadT z m c -> ReadT z m (a, [b], c)
 form1NC p q r =
-  formMatchCont "one params" $ \x (ps,k) ->
+  formMatchCont "one kids" $ \x (ps,k) ->
     case ps of
-      []   -> resty $ Expected [(x, "At least one parameter")]
+      []   -> resty $ Expected [(x, "At least one kid")]
       y:ys -> (,,) <$> subTree p y <*> traverse (subTree q) ys <*> subTree r k
 
 formN1c :: Monad m => ReadT z m a -> ReadT z m b -> ReadT z m ([a], b)
 formN1c p q =
   formMatchEither $ \x ps ->
     case reverse ps of
-      []   -> resty $ Expected [(x, "At least one parameter")]
+      []   -> resty $ Expected [(x, "At least one kid")]
       y:ys -> (,) <$> traverse (subTree p) (reverse ys) <*> subTree q y
 
 
--- Expressions With Explicit Optional Continuation -----------------------------
+-- Expressions With Explicit Optional Heir -------------------------------------
 
 form0e :: Monad m => ReadT z m a -> ReadT z m (Maybe a)
 form0e f = formMatch \x (ps, k) ->
   case ps of
     [] -> traverse (subTree f) k
-    _  -> resty $ Expected [(x, "no params")]
+    _  -> resty $ Expected [(x, "no kids")]
 
 form1e :: Monad m => ReadT z m a -> ReadT z m b -> ReadT z m (a, Maybe b)
 form1e f c = formMatch \x (ps, k) ->
   case ps of
     [p] -> (,) <$> subTree f p <*> traverse (subTree c) k
-    _   -> resty $ Expected [(x, "one param")]
+    _   -> resty $ Expected [(x, "one child")]
 
 form2e
     :: Monad m
@@ -437,7 +461,7 @@ form2e
 form2e f g c = formMatch \x (ps, k) ->
   case ps of
     [p,q] -> (,,) <$> subTree f p <*> subTree g q <*> traverse (subTree c) k
-    _     -> resty $ Expected [(x, "two params")]
+    _     -> resty $ Expected [(x, "two kids")]
 
 form3e
     :: Monad m
@@ -449,7 +473,7 @@ form3e f g h c = formMatch \x (ps, k) ->
                      <*> subTree g q
                      <*> subTree h r
                      <*> traverse (subTree c) k
-    _       -> resty $ Expected [(x, "three params")]
+    _       -> resty $ Expected [(x, "three kids")]
 
 form4e
     :: Monad m
@@ -462,7 +486,7 @@ form4e f g h i c = formMatch \x (ps, k) ->
                            <*> subTree h r
                            <*> subTree i s
                            <*> traverse (subTree c) k
-    _            -> resty $ Expected [(x, "four params")]
+    _            -> resty $ Expected [(x, "four kids")]
 
 formNe :: Monad m => ReadT z m a -> ReadT z m b -> ReadT z m ([a], Maybe b)
 formNe f c = formMatch \_ (ps,k) -> (,) <$> traverse (subTree f) ps
@@ -474,7 +498,7 @@ form1Ne
 form1Ne p q c =
   formMatch \x (ps, k) ->
     case ps of
-      []   -> resty $ Expected [(x, "At least one parameter")]
+      []   -> resty $ Expected [(x, "At least one kid")]
       y:ys -> (,,) <$> subTree p y
                    <*> traverse (subTree q) ys
                    <*> traverse (subTree c) k
@@ -516,7 +540,7 @@ slipN n p = loop
               ]
 
 -- TODO If no elements given, don't give error saying that not giving
--- a continuation would be okay.
+-- a heir would be okay.
 slip1N :: Monad m => Text -> ReadT z m a -> ReadT z m b -> ReadT z m [(a,[b])]
 slip1N n p q = loop
  where

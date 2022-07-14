@@ -1,23 +1,41 @@
-{-# OPTIONS_GHC -Wall #-}
+{-# OPTIONS_GHC -Wall   #-}
 {-# OPTIONS_GHC -Werror #-}
 
 module Rex
-    ( module Rex
+    ( module X
+    , RexColor
+    , RexColorScheme(..)
     , RuneShape(..)
     , TextShape(..)
     , Leaf
     , GRex(..)
     , Rex
     , rexFile
-    , rexFileColor
+    , rexFileBuilder
     , rexLine
-    , rexLineColor
-    , boldColoring
-    , noColoring
+    , rexLineBuilder
+    , colorsOnlyInTerminal
     )
 where
 
-import Rex.Block as Rex
+import ClassyPrelude
+
+import Rex.Block as X
 import Rex.Print
-import Rex.ReadT as Rex
+import Rex.ReadT as X
 import Rex.Types
+
+import qualified System.Console.Terminal.Size as TSize
+
+--------------------------------------------------------------------------------
+
+isConsole :: IO Bool
+isConsole =
+    TSize.size @Int >>= \case
+        Nothing -> pure False
+        Just _  -> pure True
+
+colorsOnlyInTerminal :: (RexColor => IO ()) -> IO ()
+colorsOnlyInTerminal act = do
+    colors <- isConsole <&> bool NoColors BoldColors
+    (let ?rexColors = colors in act)

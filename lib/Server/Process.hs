@@ -12,7 +12,7 @@ import Control.Monad.State (StateT, evalStateT, runStateT)
 import Crypto.Sign.Ed25519 (PublicKey(..), SecretKey(..), createKeypair,
                             toPublicKey)
 import Numeric.Natural     (Natural)
-import Plun                (Nat, Val, pattern AT, (%%))
+import Plun                (Nat, Pln(PLN), pattern AT, (%%))
 import Plun.Print          (encodeBtc)
 import System.Entropy      (getEntropy)
 
@@ -72,7 +72,7 @@ data RequestHandle = RequestHandle ProcessId RequestIdx
 
 data LocalSendRep = LocalSendRep { srSrc :: LocalAddress,
                                    srDst :: LocalAddress,
-                                   srVal :: Val }
+                                   srVal :: Pln }
   deriving (Show)
 
 data LocalRecvRep = LocalRecvRep { rrDst  :: LocalAddress,
@@ -82,22 +82,22 @@ data LocalRecvRep = LocalRecvRep { rrDst  :: LocalAddress,
 -- The types of Request we can parse
 data Request
   = LocalNext                  -- 1               -> IO Nat
-  | ForkLogged Val             -- {2 Exe}         -> IO {}
-  | ForkUnlogged Val           -- {3 Exe}         -> IO {}
+  | ForkLogged Pln             -- {2 Exe}         -> IO {}
+  | ForkUnlogged Pln           -- {3 Exe}         -> IO {}
   | LocalBury LocalAddress     -- {4 Exe}         -> IO Why
-  | LocalKill LocalAddress Val -- {5 Nat Val}     -> IO {}
-  | LocalSend LocalSendRep     -- {6 Nat Nat Val} -> IO {}
-  | LocalRecv LocalRecvRep     -- {7 Nat Nat*}    -> IO {Nat Val}
+  | LocalKill LocalAddress Pln -- {5 Nat Pln}     -> IO {}
+  | LocalSend LocalSendRep     -- {6 Nat Nat Pln} -> IO {}
+  | LocalRecv LocalRecvRep     -- {7 Nat Nat*}    -> IO {Nat Pln}
   | Wait Natural               -- {8 Wen}         -> IO Wen
   | When                       -- 9               -> IO Wen
   | Rand                       -- 10              -> IO Bar
-  -- We can't parse this request, but we must still track it. The Val is the
+  -- We can't parse this request, but we must still track it. The Pln is the
   -- raw request val.
-  | UNKNOWN Val
+  | UNKNOWN Pln
   deriving (Show)
 
 data BuryWhy
-  = WhyKilled Val
+  = WhyKilled Pln
   | WhyShutdown
   | WhyMissing
   | WhyReleased
@@ -116,19 +116,19 @@ data ForkOp
 data Response
   = Fork {
       fOp  :: ForkOp,
-      fVal :: Val
+      fVal :: Pln
       }
   | RunValue {
-      rlVal :: Val
+      rlVal :: Pln
       }
   | RecvLocal {
       rlSendReq :: RequestHandle,
-      rlVal     :: Val,
+      rlVal     :: Pln,
       rlSrc     :: LocalAddress,
       rlDst     :: LocalAddress
       }
   | RunKill {
-      rlReason           :: Val,
+      rlReason           :: Pln,
       rlLoggedTidsKilled :: [ProcessIdx],
       rlKilledChangesets :: [KilledChangeset]
       }
@@ -137,7 +137,7 @@ data Response
 responseOK :: Response
 responseOK = RunValue $ AT 0
 
-responseToVal :: Response -> IO Val
+responseToVal :: Response -> IO Pln
 responseToVal Fork{}                = pure $ AT 0
 responseToVal (RunValue val)        = pure val
 responseToVal (RecvLocal _ val _ _) = pure val
@@ -147,9 +147,9 @@ responseToVal RunKill{}             = pure $ AT 0
 
 data Process = PROCESS {
   processProcessId         :: ProcessId,
-  processNoun              :: Val,
-  processRequestsByIndex   :: IntMap (Val, Request),
-  processExpectedClaimNoun :: Val
+  processNoun              :: Pln,
+  processRequestsByIndex   :: IntMap (Pln, Request),
+  processExpectedClaimNoun :: Pln
   }
   deriving (Show)
 
@@ -159,11 +159,11 @@ data Process = PROCESS {
 data ExecEffect
   -- We didn't apply a value (ie, in the case of a new forked process).  The
   -- attached changeset is just adds.
-  = EEInit { initAid :: ProcessId, initVal :: P.Val }
+  = EEInit { initAid :: ProcessId, initVal :: Pln }
 
-  -- The response applied a reqId/Val to the process.
+  -- The response applied a reqId/Pln to the process.
   | EEDefault { execIdx :: RequestIdx,
-                execVal :: Val }
+                execVal :: Pln }
   -- When the Response is a fork, we also have a new forked thread that has to
   -- be processed.
   | EEForked { forkedRequestIdx :: RequestIdx,
@@ -172,7 +172,7 @@ data ExecEffect
                forkedType       :: LogType
                }
   | EELocalRecv { recvRequestIdx :: RequestIdx,
-                  recvVal        :: Val,
+                  recvVal        :: Pln,
                   causingSend    :: RequestHandle,
                   recvFrom       :: LocalAddress,
                   recvTo         :: LocalAddress
@@ -182,7 +182,7 @@ data ExecEffect
   -- The response was a kill, and on applying the changeset, we must kill all
   -- matching processes.
   | EEKilled { killRequestIdx       :: RequestIdx,
-               killReason           :: Val,
+               killReason           :: Pln,
                killLoggedTidsKilled :: [ProcessIdx],
                killKilledChangesets :: [KilledChangeset]
              }
@@ -288,17 +288,17 @@ instance ToNoun BuryWhy where
   toNoun WhyMemory       = AT 4
   toNoun WhyTimeout      = AT 5
 
-getCell :: Val -> Maybe (Val, Val)
-getCell (P.VAL _ (P.APP h t)) = Just (P.nodVal h, t)
-getCell _                     = Nothing
+getCell :: Pln -> Maybe (Pln, Pln)
+getCell (PLN _ (P.APP h t)) = Just (P.nodVal h, t)
+getCell _                   = Nothing
 
 -- -----------------------------------------------------------------------
 
-valToRequest :: Val -> Request
+valToRequest :: Pln -> Request
 valToRequest n = fromMaybe (UNKNOWN n) $ do
   case n of
     --
-    (P.VAL _ (P.NAT n)) -> case n of
+    (PLN _ (P.NAT n)) -> case n of
       -- 1               -> IO {}        [ local_next ]
       1  -> pure LocalNext
       -- 9               -> IO Wen       [ when ]
@@ -307,7 +307,7 @@ valToRequest n = fromMaybe (UNKNOWN n) $ do
       10 -> pure Rand
       _  -> Nothing
 
-    (P.VAL _ (P.DAT (P.ROW xs))) -> case toList xs of
+    (PLN _ (P.DAT (P.ROW xs))) -> case toList xs of
       -- {2 Exe}         -> IO {}         [ local_fork_log ]
       [AT 2, exe] -> pure $ ForkLogged exe
 
@@ -317,16 +317,16 @@ valToRequest n = fromMaybe (UNKNOWN n) $ do
       -- {4 Nat}         -> IO Why        [ local_bury ]
       [AT 4, srcN] -> LocalBury <$> fromNoun srcN
 
-      -- {5 Nat Val}     -> IO {}         [ local_kill ]
+      -- {5 Nat Pln}     -> IO {}         [ local_kill ]
       [AT 5, dstN, val] -> LocalKill <$> fromNoun dstN <*> pure val
 
-      -- {6 Nat Nat Val} -> IO {}         [ local_send ]
+      -- {6 Nat Nat Pln} -> IO {}         [ local_send ]
       [AT 6, srcN, dstN, bodyN] -> do
         src <- fromNoun srcN
         dst <- fromNoun dstN
         pure $ LocalSend $ LocalSendRep src dst bodyN
 
-      -- {7 Nat Nat*}    -> IO {Nat Val}  [ local_recv ]
+      -- {7 Nat Nat*}    -> IO {Nat Pln}  [ local_recv ]
       [AT 7, srcN, dstNs] -> do
         src <- fromNoun srcN
         dstVec <- P.getRow dstNs
@@ -338,7 +338,7 @@ valToRequest n = fromMaybe (UNKNOWN n) $ do
 
       _ -> Nothing
 
-newProcess :: ProcessId -> Val -> Process
+newProcess :: ProcessId -> Pln -> Process
 newProcess aid v = PROCESS {
   processProcessId = aid,
   processNoun = v,
@@ -346,14 +346,14 @@ newProcess aid v = PROCESS {
   processExpectedClaimNoun = P.mkRow []
   }
 
-readProcess :: Val -> Maybe (Natural, Val)
+readProcess :: Pln -> Maybe (Natural, Pln)
 readProcess n = do
   r <- getRawRow n
   lastResp <- r V.!? 0 >>= fromNoun
   noun <- r V.!? 1
   pure (lastResp, noun)
 
-reloadProcessSnapshot :: (ProcessIdx, Val)
+reloadProcessSnapshot :: (ProcessIdx, Pln)
                       -> IO (ReloadChangeset, Process)
 reloadProcessSnapshot (pidx, val) = do
   let pid = ProcessId Logged pidx
@@ -372,7 +372,7 @@ killProcess process = evalStateT exec process
       pure KilledChangeset{..}
 
 
-buildInitialProcess :: ProcessIdx -> Val -> IO (ExecChangeset, Process)
+buildInitialProcess :: ProcessIdx -> Pln -> IO (ExecChangeset, Process)
 buildInitialProcess pidx val = do
   let pid = ProcessId Logged pidx
   runStateT (parseExecChangeset (EEInit pid val))
@@ -482,7 +482,7 @@ parseRequests = do
   let allReqs = partitionEithers $ concat $ changed ++ new
   pure allReqs
   where
-    createReq :: Int -> Val
+    createReq :: Int -> Pln
               -> StateT Process IO [ReqChange]
     createReq i v = do
       let req = valToRequest v
@@ -526,8 +526,8 @@ parseClaims = do
       (_, keys) <- getCell inner
       pure keys
 
-    rowToClaimSet :: Val -> Set Claim
-    rowToClaimSet (P.VAL _ (P.DAT (P.ROW v))) =
+    rowToClaimSet :: Pln -> Set Claim
+    rowToClaimSet (PLN _ (P.DAT (P.ROW v))) =
         S.fromList $ catMaybes $ fmap fromNoun $ V.toList v
     rowToClaimSet _                            = mempty
 

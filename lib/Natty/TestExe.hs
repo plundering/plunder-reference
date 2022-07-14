@@ -1,6 +1,6 @@
 {-# OPTIONS_GHC -Wno-deprecations #-}
 
-module Main (main) where
+module Natty.TestExe (main) where
 
 import Data.IORef
 import Numeric.Natural

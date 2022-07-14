@@ -70,8 +70,9 @@ whenJust (Just x) act = act x
 runTest
     :: GoldPaths
     -> (FilePath -> Handle -> Bool -> Block -> IO ())
+    -> (Handle -> IO ())
     -> TestTree
-runTest GOLD_PATHS{..} act =
+runTest GOLD_PATHS{..} act end =
     goldenVsFile gpFileNm gpGolden gpOutput $ do
         vFirst <- newIORef True
         withFile gpOutput WriteMode \h -> do
@@ -79,3 +80,4 @@ runTest GOLD_PATHS{..} act =
                 firstLn <- readIORef vFirst
                 act gpFileNm h firstLn b
                 writeIORef vFirst False
+            end h

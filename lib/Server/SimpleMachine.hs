@@ -45,7 +45,7 @@ import Optics.At
 import Optics.State.Operators
 import Optics.TH
 import Optics.Zoom
-import Plun                         (Nat, Val, pattern AT)
+import Plun                         (Nat, Pln, pattern AT)
 import Plun.Print                   (encodeBtc)
 import System.Entropy               (getEntropy)
 import System.Random                (randomRIO)
@@ -141,7 +141,7 @@ data Machine = MACHINE {
 
   -- A kill request receives a response once there are no processes,
   -- terminating any existing matching processes as necessary.
-  machineOpenKills                  :: Map RequestHandle (LocalAddress, Val),
+  machineOpenKills                  :: Map RequestHandle (LocalAddress, Pln),
 
   -- A list of sends which have successfully been delivered. A delivered send
   -- is not invalid or open. It was delivered and is valid, even if it becomes
@@ -167,8 +167,8 @@ data Machine = MACHINE {
   machineInvalidLocalSendsByProcess :: Map ProcessId (Set RequestHandle),
 
   -- Open forks.
-  machineOpenLoggedForks            :: Map RequestHandle Val,
-  machineOpenUnloggedForks          :: Map RequestHandle Val,
+  machineOpenLoggedForks            :: Map RequestHandle Pln,
+  machineOpenUnloggedForks          :: Map RequestHandle Pln,
 
   -- All timers that should fire in the future, ordered as a heap.
   machineOpenTimers                 :: H.MinHeap (Natural, RequestHandle),
@@ -263,7 +263,7 @@ pidxInsert p v = IM.insert (unProcessIdx p)  v
 pidxDelete :: ProcessIdx -> IntMap v -> IntMap v
 pidxDelete = IM.delete . unProcessIdx
 
-bootNewMachine :: LmdbThread -> MachineName -> Val -> IO MachineHandle
+bootNewMachine :: LmdbThread -> MachineName -> Pln -> IO MachineHandle
 bootNewMachine lmdbt tn val = do
   thControlQ <- newTQueueIO
   thAsync <- async $ evalStateT start (newMachine thControlQ lmdbt tn)
@@ -1001,7 +1001,7 @@ loadSnapshot (Snapshot v) = do
   assign' #loggedProcesses logged
   pure rcs
   where
-    load :: ([ReloadChangeset], IntMap Process) -> (Int, P.Val)
+    load :: ([ReloadChangeset], IntMap Process) -> (Int, Pln)
          -> StateT Machine IO ([ReloadChangeset], IntMap Process)
     load (cs, im) (idx, val) = case val of
       AT 0 -> do

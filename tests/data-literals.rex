@@ -4,28 +4,28 @@
 
 ; Some Config
 = config
-~~~ %%% image                 """ circleci/python:3.9.0-node
-    %%% environment
-        %%% POSTGRES_DB       """ database
-        %%% POTGRES_PASSWOD   """ pass
-        %%% POTGRES_USER      """ user
-~~~ %%% image                 """ circleci/python:3.9.0-node
-    %%% environment
-        %%% API_URL           """ http://localhost:5000
-        %%% APP_DB_URL        """ postgresql://user:user@localhost:5
-        %%% CYPRESS_BASE_URL  """ http://localhost:3000
+~~ %% image              """circleci/python:3.9.0-node
+   %% environment
+      %% POSTGRES_DB     """database
+      %% POTGRES_PASSWOD """pass
+      %% POTGRES_USER    """user
+~~ %% image              """circleci/python:3.9.0-node
+   %% environment
+      %% API_URL          """http://localhost:5000
+      %% APP_DB_URL       """postgresql://user:user@localhost:5
+      %% CYPRESS_BASE_URL """http://localhost:3000
 
 ; Table of names for the first four atoms.
-= atom-names
-| map-from-list
-~~~ ,,, 0
-    ,,, :zero
-~~~ ,,, 1
-    ,,, :one
-~~~ ,,, 2
-    ,,, :two
-~~~ ,,, 3
-    ,,, :three
+= atomNames
+| mapFromList
+~~ ,, 0
+   ,, :zero
+~~ ,, 1
+   ,, :one
+~~ ,, 2
+   ,, :two
+~~ ,, 3
+   ,, :three
 
 
 ;;;;;;;;;;;;;;;;;;;;

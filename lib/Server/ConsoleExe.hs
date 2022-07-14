@@ -1,4 +1,4 @@
-module ServerExe (main) where
+module Server.ConsoleExe (main) where
 
 import PlunderPrelude
 
@@ -16,8 +16,8 @@ import Server.Types.Logging
 import Server.Types.Machine
 
 import Plun.Print   (decodeBtc, encodeBtc)
-import Sire.Backend (plunLoad)
-import SireExe      (showPlun)
+import Loot.Backend (plunLoad)
+import Sire.ReplExe (showPlun)
 
 import Plun as P
 
@@ -86,8 +86,8 @@ main = do
             -- dedicated pill files instead of reading from the repl cache
             -- instead.
             val <- case pVal of
-              P.VAL _ (P.PIN P.P{pinItem}) -> pure pinItem
-              _                            -> error "Impossible"
+              PLN _ (P.PIN P.P{pinItem}) -> pure pinItem
+              _                          -> error "Impossible"
 
             handle <- bootNewMachine lmdbt machineName val
             asyncFinishOrCtrlC handle ctrlCPressed

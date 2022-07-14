@@ -98,16 +98,19 @@ linesBlocks = loop False []
 
     loop seenAny blk =
         C.await >>= \case
-            Nothing                 -> out blk >> pure ()
+            Nothing ->
+                out blk >> pure ()
             Just (T.stripEnd -> ln) ->
-                if ln=="" && not seenAny
-                then loop False (ln:blk)
-                else if lineEndsBlock ln
-                     then out (ln:blk) >> loop False []
-                     else loop True (ln:blk)
+                if | not seenAny && nullLn ln -> loop False (ln:blk)
+                   | lineEndsBlock seenAny ln -> out (ln:blk) >> loop False []
+                   | otherwise                -> loop True (ln:blk)
 
-lineEndsBlock :: Text -> Bool
-lineEndsBlock ln =
+nullLn :: Text -> Bool
+nullLn "" = True
+nullLn t  = (";" `isPrefixOf` T.stripStart t)
+
+lineEndsBlock :: Bool -> Text -> Bool
+lineEndsBlock seenAny ln =
     case unpack ln of
         ' ':_                  -> False -- Indented block
         ';':_                  -> False -- Comment (could be multi-line)
@@ -116,7 +119,7 @@ lineEndsBlock ln =
         c:cs | isOpenRune c cs -> False -- Continuation rune
         c:cs | isNamePage c cs -> False
         []                     -> True  -- Empty line
-        _                      -> True  -- One line
+        _                      -> not seenAny  -- One line
   where
     isNamePage :: Char -> String -> Bool
     isNamePage '"'  ('"':'"':_)     = True

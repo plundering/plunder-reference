@@ -1,2 +1,2 @@
 module Main (main) where
-import ServerExe (main)
+import Server.ConsoleExe (main)

@@ -4,13 +4,13 @@
 / ! m
   @ Monad m
   > FilePath
-  > ConduitT Text (Int , Either Text Block) m {}
+  > ConduitT Text (Int , Either Text Block) m []
 = (blocked-lines fil)
     & bloop 1 NA ~
-    / Int > Bool > Block > ConduitT Text (Int , Either Text Block) m {}
+    / Int > Bool > Block > ConduitT Text (Int , Either Text Block) m []
     = (bloop line-num in-err so-far)
     !=  yield-block
-        ? NIL | pure {}
+        ? NIL | pure []
         ? fs  | yield (line-num, RIGHT fs)
     !=  continue
         | bloop (inc line-num) NA
@@ -24,24 +24,24 @@
         ? SOME|ln | SOME | fmap line-type | lex-line (fil, line num) ln
     !!  >> scrut
         ? NONE
-            !! pure {}
-        ? [SOME | LEFT er]
+            !! pure []
+        ? {SOME | LEFT er}
             !! go-err NA er
-        ? [SOME | RIGHT EMP-LINE]
+        ? {SOME | RIGHT EMP-LINE}
             !! yield-block so-far
-            !! continue {}
-        ? [SOME | RIGHT | CONTINUED fs]
+            !! continue []
+        ? {SOME | RIGHT | CONTINUED fs}
             !! if null so-far
             !! then go-err NA bad-indent
             !! else continue (so-far <> fs)
-        ? [SOME | RIGHT | NEW-BLOCK fs]
+        ? {SOME | RIGHT | NEW-BLOCK fs}
             !! yield-block so-far
             !! continue fs
-        ? [SOME | RIGHT | ONE-LINE w]
+        ? {SOME | RIGHT | ONE-LINE w}
             !! yield-block so-far
             !! yield-block ~(0 , WIDE w)
-            !! continue {}
-        ? [SOME | RIGHT | TOP-MULTI-SHUT w f]
+            !! continue []
+        ? {SOME | RIGHT | TOP-MULTI-SHUT w f}
             ;; Let the parser handle it, not our problem.
-            !! yield-block (0 , WIDE w):f
-            !! continue {}
+            !! yield-block (0 , WIDE w)
+            !! continue []
