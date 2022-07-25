@@ -127,6 +127,7 @@ dependencies:
 - stm-chans
 - stm-delay
 - tasty
+- tasty-quickcheck
 - tasty-golden
 - terminal-size
 - text

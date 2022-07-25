@@ -7,7 +7,7 @@ module Sire.ReplExe
     , inlineFun
     , runBlockPlun
     , Refr
-    , Global
+    , Global(..)
     )
 where
 
@@ -35,6 +35,7 @@ import Plun                    (pattern AT, (%%))
 import Rex.Lexer               (isRuneChar)
 
 import qualified Data.Map  as M
+import qualified Data.Set  as S
 import qualified Plun      as P
 import qualified Runner    as Run
 
@@ -76,13 +77,12 @@ main = colorsOnlyInTerminal do
 
     vEnv <- newIORef mempty
     vMac <- newIORef mempty
-    vLin <- newIORef mempty
     writeIORef P.vShowPlun (pure . showPlun)
     modifyIORef' P.state \st -> st { P.stFast = P.jetMatch }
 
-    for_ filz (\p -> replFile p (runBlockPlun stdout False plunActor vEnv vMac vLin))
+    for_ filz (\p -> replFile p (runBlockPlun stdout False plunActor vEnv vMac))
     welcome stdout
-    replStdin (runBlockPlun stdout True plunActor vEnv vMac vLin)
+    replStdin (runBlockPlun stdout True plunActor vEnv vMac)
 
 welcome :: RexColor => Handle -> IO ()
 welcome h = out txt
@@ -107,13 +107,12 @@ runBlockPlun
     => Handle
     -> Bool
     -> (Pln -> IO (Pln, Pln))
-    -> IORef (Map Symb Pln)
+    -> IORef (Map Symb Global)
     -> IORef (Map Text Pln)
-    -> IORef (Map Symb (Fun Pln Refr Global))
     -> Block
     -> IO ()
-runBlockPlun h okErr actor vEnv vMac vLin block = do
-    let go = runBlock h actor vEnv vMac vLin block
+runBlockPlun h okErr actor vEnv vMac block = do
+    let go = runBlock h actor vEnv vMac block
     let out = if (?rexColors == NoColors)
               then hPutStr stderr
               else hPutChunks stderr . singleton . bold . fore red . chunk
@@ -128,45 +127,126 @@ runBlock
     :: RexColor
     => Handle
     -> (Pln -> IO (Pln, Pln))
-    -> IORef (Map Symb Pln)
+    -> IORef (Map Symb Global)
     -> IORef (Map Text Pln)
-    -> IORef (Map Symb (Fun Pln Refr Global))
     -> Block
     -> ExceptT Text IO ()
-runBlock h actor vEnv vMacros vInline (BLK _ _ eRes) = do
+runBlock h actor vEnv vMacros (BLK _ _ eRes) = do
     rexed  <- liftEither eRes
     vgs    <- newIORef (0::Nat)
     env    <- readIORef vEnv
-    eVl    <- pure (valPlun $ envVal env)
+    eVl    <- pure (valPlun $ fmap gPlun $ envVal env)
     mac    <- readIORef vMacros
     parsed <- let ?macros = MacroEnv vgs eVl mac
               in liftEither (rexCmd rexed)
-    env' <- runCmd h actor env vMacros vInline parsed
+    env' <- runCmd h actor env vMacros parsed
     writeIORef vEnv env'
 
 cab :: Symb
 cab = utf8Nat "_"
 
+vFiles :: IORef (Map Text (Map Symb Global))
+vFiles = unsafePerformIO (newIORef mempty)
+
+vFileStack :: IORef [Text]
+vFileStack = unsafePerformIO (newIORef [])
+
+runFile :: RexColor => Text -> ExceptT Text IO (Map Symb Global)
+runFile baseName = do
+    stk <- readIORef vFileStack
+    when (elem baseName stk) do
+        error $ ("Recurive import: " <>)
+              $ unpack
+              $ intercalate " -> "
+              $ reverse (baseName:stk)
+
+    fil <- readIORef vFiles
+    writeIORef vFileStack (baseName:stk)
+
+    let actor :: Pln -> IO (Pln, Pln)
+        actor _ = error "No effects allowed in libraries"
+
+    res <- case lookup baseName fil of
+        Just pln -> pure pln
+        Nothing -> do
+            let fn = unpack ("sire/" <> baseName <> ".sire")
+            vEnv <- newIORef mempty
+            vMac <- newIORef mempty
+            liftIO $ replFile fn
+                   $ runBlockPlun stdout False actor vEnv vMac
+            env <- readIORef vEnv
+            modifyIORef vFiles (insertMap baseName env)
+            pure env
+
+    writeIORef vFileStack stk
+
+    pure res
+
+openModule
+    :: IORef (Map Text Pln)
+    -> Map Symb Global
+    -> Map Symb Global
+    -> IO (Map Symb Global)
+openModule vMacros moduleVal scope =
+    foldM (\e (k,v) -> bindVal vMacros k v e) scope $
+        mapToList moduleVal
+
+-- TODO Somehow handle inlining
+bindVal
+    :: IORef (Map Text Pln)
+    -> Symb
+    -> Global
+    -> Map Symb Global
+    -> IO (Map Symb Global)
+bindVal vMacros sym glo scope = do
+    case natUtf8 sym of
+        Right txt | (not (null txt) && all isRuneChar txt) ->
+            modifyIORef' vMacros (insertMap txt (gPlun glo))
+        _ ->
+           pure ()
+    pure (insertMap sym glo scope)
+
 runCmd :: RexColor
        => Handle
        -> (Pln -> IO (Pln, Pln))
-       -> Map Symb Pln
+       -> Map Symb Global
        -> IORef (Map Text Pln)
-       -> IORef (Map Symb (Fun Pln Refr Global))
        -> XCmd
-       -> ExceptT Text IO (Map Symb Pln)
-runCmd h runFx scope vMacros vInline = \case
-    PRINT v -> do
-        G val _ <- resolveAndInjectExp scope vInline v
+       -> ExceptT Text IO (Map Symb Global)
+runCmd h runFx scope vMacros = \case
+    FILTER symbs -> do
+        for_ symbs \s -> do
+            unless (M.member s scope) do
+                throwError ("^-^ filtered for undefined: " <> showSymb s)
+        let f k _ = S.member k (setFromList symbs)
+        pure (M.filterWithKey f scope)
+    IMPORT [] -> do
+        pure scope
+    IMPORT ((modu, whyt):more) -> do
+        tab <- runFile modu
+        let tab' = if null whyt then tab else
+                     M.filterWithKey (\k _ -> elem k whyt) tab
+        for_ whyt \w -> do
+            unless (M.member w tab) do
+                throwError $ concat
+                    [ "module '"
+                    , modu
+                    , "' does not export: "
+                    , showSymb w
+                    ]
+        scope' <- liftIO (openModule vMacros tab' scope)
+        runCmd h runFx scope' vMacros (IMPORT more)
+    OUTPUT v -> do
+        glo@(G val _) <- resolveAndInjectExp scope v
         liftIO $ printValue h True Nothing val
-        pure $ insertMap cab val scope
+        pure $ insertMap cab glo scope
     DUMPY v -> do
-        G pln _ <- resolveAndInjectExp scope vInline v
+        G pln _ <- resolveAndInjectExp scope v
         liftIO $ printValue h False Nothing pln
         pure scope
     CHECK checks -> do
         for checks $ \(raw, v) -> do
-            G val _ <- resolveAndInjectExp scope vInline v
+            G val _ <- resolveAndInjectExp scope v
             let NAMED_CLOSURE _ _ top = nameClosure (loadShallow val)
             unless ((top::Val Symb) == 1)
                 $ throwError . rexFile
@@ -182,44 +262,40 @@ runCmd h runFx scope vMacros vInline = \case
         pure scope
 
     DEFINE (BIND_EXP nam e : more) -> do
-        G pln mInline <- resolveAndInjectExp scope vInline e
-        case mInline of
-            Nothing -> pure ()
-            Just fn -> modifyIORef' vInline (insertMap nam fn)
+        glo@(G pln _) <- resolveAndInjectExp scope e
         liftIO $ printValue h True (Just nam) pln
         case natUtf8 nam of
             Right txt | (not (null txt) && all isRuneChar txt) ->
                 modifyIORef' vMacros (insertMap txt pln)
             _ -> pure ()
-        runCmd h runFx (insertMap nam pln scope) vMacros vInline (DEFINE more)
+        runCmd h runFx (insertMap nam glo scope) vMacros (DEFINE more)
     DEFINE (BIND_FUN nam f : more) -> do
         raw <- liftIO $ resolveTopFun f
-        fun <- traverse (getRef scope vInline) raw
-        modifyIORef vInline (insertMap nam fun)
+        fun <- traverse (getRef scope) raw
         lam <- injectFun fun
         let pln = P.mkPin lam
         liftIO $ printValue h True (Just nam) pln
-        modifyIORef' vInline (insertMap nam fun)
         case natUtf8 nam of
             Right txt | (not (null txt) && all isRuneChar txt) ->
                 modifyIORef' vMacros (insertMap txt pln)
             _ -> pure ()
-        runCmd h runFx (insertMap nam pln scope) vMacros vInline (DEFINE more)
+        let scope' = insertMap nam (G pln (Just fun)) scope
+        runCmd h runFx scope' vMacros (DEFINE more)
     SAVEV v   -> do
-        G pln _ <- resolveAndInjectExp scope vInline v
+        glo@(G pln _) <- resolveAndInjectExp scope v
         hom <- liftIO getHomeDirectory
         has <- plunSave (hom <> "/.sire") pln
         ()  <- liftIO (outHex h has)
         let idn = utf8Nat (encodeBtc has)
         liftIO $ printValue h True (Just idn) pln
-        pure $ insertMap idn pln scope
+        pure $ insertMap idn glo scope
     IOEFF i r fx -> do
-        G pln _ <- resolveAndInjectExp scope vInline fx
+        G pln _ <- resolveAndInjectExp scope fx
         liftIO $ printValue h True (Just $ utf8Nat "__FX__") pln
         (rid, res) <- liftIO (runFx pln)
         liftIO $ printValue h True (Just i) rid
         liftIO $ printValue h True (Just r) res
-        pure $ insertMap i rid $ insertMap r res $ scope
+        pure $ insertMap i (G rid Nothing) $ insertMap r (G res Nothing) $ scope
     EPLOD _ -> do
         putStrLn "TODO: Macro debugger stubbed out for now"
         putStrLn "TODO: Need to reconsider how printing should work"
@@ -235,29 +311,23 @@ envVal =
     f :: (Symb, a) -> (Nat, Val a)
     f (nm, v) = (nm, REF v)
 
-getRef :: Map Symb Pln
-       -> IORef (Map Symb (Fun Pln Refr Global))
-       -> Symb
-       -> ExceptT Text IO Global
-getRef env vInline nam = do
-    pln <- maybe unresolved pure (lookup nam env)
-    lin <- liftIO (readIORef vInline)
-    pure (G pln (lookup nam lin))
+getRef :: Map Symb Global -> Symb -> ExceptT Text IO Global
+getRef env nam = do
+    maybe unresolved pure (lookup nam env)
   where
     unresolved = throwError ("Unresolved Reference: " <> showSymb nam)
 
 resolveAndInjectExp
-    :: Map Symb Pln
-    -> IORef (Map Symb (Fun Pln Refr Global))
+    :: Map Symb Global
     -> XExp
     -> ExceptT Text IO Global
-resolveAndInjectExp scope vInline ast = do
+resolveAndInjectExp scope ast = do
     self <- gensym (utf8Nat "self")
     argu <- gensym (utf8Nat "argu")
     body <- resolveExp mempty ast
     let rawFun = FUN self (LN 0) (argu:|[]) body
-    func <- traverse (getRef scope vInline) rawFun
-    expr <- traverse (getRef scope vInline) body
+    func <- traverse (getRef scope) rawFun
+    expr <- traverse (getRef scope) body
     pln <- injectFun func
     (_, _, mInline) <- expBod (1, mempty) expr
     pure $ G (valPlun (REF pln `APP` NAT 0)) mInline

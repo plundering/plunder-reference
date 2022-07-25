@@ -1,0 +1,197 @@
+/+  prim   (funBody seq die)
+/+  bool   (if ifNot not and or)
+/+  nat    (inc dec add sub mod mul div)
+/+  nat    (lte lth min)
+/+  nat    (takeByte dropByte)
+/+  nat    (bex lsh rsh)
+/+  nat    (roundUp bitWidth dis even)
+/+  eql    (eql neq)
+/+  row    (mkRow idx get len)
+/+  row    (gen map foldr foldl drop take)
+/+  row    (weld concat)
+/+  list   (NIL CONS listCase listMap listTurn)
+/+  list   (listFromRow listToRow)
+/+  either (LEFT RIGHT)
+/+  macro  (rexCase WORD HEIR cnsE rexGetWord)
+/+  tab    (tabHas tabGet)
+/+  hax    ("#")
+/+  pad    (padWeld padLen)
+/+  cord   (explode)
+
+;;;;;;;;;;;
+;; Blobs ;;
+;;;;;;;;;;;
+
+;;;
+;;; A blob is a byte array encoded as a
+;;; nat and a count for the number of
+;;; trailing zero bytes.
+;;;
+;;; This pair is then wrapped in a fun for
+;;; datajetting, and given the special name
+;;; `3`
+;;;
+;;; TODO Should bars be defined in terms of pads?
+;;;
+
+= (byteWidth n)
+. 0 n
+? (loop acc n)
+| seq acc
+| ifNot n acc
+| loop (inc acc) (rsh n 8)
+
+= (barTrail n)
+. 0 n
+? (loop acc num)
+| seq acc
+| if (or eql-1-num eql-0-num)
+   | acc
+@ nex | rsh num 8
+@ nac | ifNot mod-num-8 (inc acc) 0
+| loop nac nex
+
+= (barEnc pad bits)
+| add bits
+| bex | mul 8 | add pad byteWidth-bits
+
+= (barDec n)
+| sub n | bex | mul 8 (dec byteWidth-n)
+
+= (mkBar pad bits) | 0 1 1 (barEnc pad bits)
+= (natBar n)       | mkBar 0 n
+= (barNat n)       | barDec (funBody n)
+= (barLen bar)     | div (padLen funBody-bar) 8
+
+= (barIdx i bar)
+. i (barNat bar)
+? (loop i n)
+; trk [%loop i n]
+| ifNot i (takeByte n)
+| ifNot n 0
+| loop (dec i) (dropByte n)
+
+; Number of zeros at the end of a row.
+= (zEnd r)
+@ las | dec | len r
+. 0 las
+? (loop n ix)
+@ vl | get r ix
+| if vl n
+| ifNot ix inc-n
+| loop inc-n dec-ix
+
+; Strip zeros from the end of a row.
+= (stripZEnd r)
+| take (sub len-r zEnd-r) r
+
+= (w8 b) | mod b 256
+
+= (bytesBar row)
+@ siz | len row
+@ pad | zEnd row
+@ byt | map w8 | take (sub siz pad) row
+@ fun (x acc)&(add x lsh-acc-8)
+@ bit | foldr fun 0 byt
+| mkBar pad bit
+
+= (barGen n f)     | bytesBar | gen n f
+= (barGet bar idx) | barIdx idx bar
+= (barBytes b)     | gen (barLen b) (barGet b)
+= (barFoldl f z b) | foldl f z (barBytes b)
+= (barFoldr f z b) | foldr f z (barBytes b)
+
+;; TODO Find other places that would benefit from pad operations.
+(barWeld x y)=(0 1 1 (padWeld funBody-x funBody-y))
+
+emptyBar=(0 1 1 1)
+
+(barConcat bs)=(foldr barWeld emptyBar bs)
+
+= (barIntercalate sep vals)
+. emptyBar listFromRow-vals
+? (go acc res)
+! listCase res acc
+& (x xs)
+! listCase xs (barWeld acc x)
+& (_ _)
+| go (barConcat acc,x,sep) xs
+
+= (hexCharToNat v)
+| if (lte v %9) (sub v %0)
+| add 10 (sub (min v %f) %a)
+
+= (barFromHex nat)
+@ dig | map hexCharToNat explode-nat
+@ pad | if (even len-dig) [] [0]
+@ buf | listFromRow concat-[pad dig [0 1]]
+. 0 buf 1
+? (loop acc lis pos)
+| seq acc
+! listCase lis (0 1 1 acc)
+& (a as)
+! listCase as (die %impossible)
+& (b bs)
+@ acc {add acc | add mul-pos-b | mul-pos | mul 16 a}
+| loop acc bs (mul 256 pos)
+
+(barPad bar)=(funBody bar)
+
+= (barLit name func _ _ kids heir)
+@ rexp (HEIR "#" (weld WORD-name kids) heir)
+@ badShape LEFT-[rexp "Expcted two kids and no heir"]
+@ badType  LEFT-[rexp "Bar literal expects a text parameter"]
+@ pram     (idx 0 kids)
+| if (neq 0 heir)     badShape
+| if (neq 1 len-kids) badShape
+! rexCase pram
+   (_ _ _)&badType
+   (bare)&{RIGHT , 0 | cnsE | func bare}
+   (text)&{RIGHT , 0 | cnsE | func text}
+   (page)&{RIGHT , 0 | cnsE | func page}
+   (_)&badType
+
+"#b"=(barLit "b" natBar)
+"#x"=(barLit "x" barFromHex)
+
+
+;;;;;;;;;;;
+;; Tests ;;
+;;;;;;;;;;;
+
+?? | eql b#fdsafdsa
+   | barWeld b#fds b#afdsa
+
+= (checkBar expect pad nat)
+@ actual (barEnc pad nat)
+@ actNat (barDec actual)
+@ actPad (barTrail actual)
+| and eql-actual-expect
+| and eql-pad-actPad
+      eql-nat-actNat
+
+?? eql 0 (barTrail 0x1ff)
+?? eql 1 (barTrail 0x100ff)
+?? eql 2 (barTrail 0x10000ff)
+?? eql 3 (barTrail 0x1000000ff)
+?? eql 0 (barTrail 0x2000000ff)
+
+?? checkBar 1     0 0
+?? checkBar 257   0 1
+?? checkBar 511   0 255
+?? checkBar 65792 0 256
+?? checkBar 256   1 0
+?? checkBar 65791 1 255
+?? checkBar 65536 2 0
+
+
+;;;;;;;;;;;;;
+;; Exports ;;
+;;;;;;;;;;;;;
+
+^-^ byteWidth barTrail barEnc barDec mkBar natBar barNat barLen barIdx
+^-^ zEnd stripZEnd w8 bytesBar barGen barGet barBytes barFoldl barFoldr
+^-^ barWeld barConcat barIntercalate
+^-^ barFromHex barPad
+^-^
+^-^ "#b" "#x"

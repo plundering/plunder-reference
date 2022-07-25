@@ -1,0 +1,115 @@
+/+  either  (LEFT RIGHT eitherOpen)
+/+  nat     (add gte)
+/+  bool    (if ifNot not and or F)
+/+  eql     (eql neq)
+/+  row     (len idx map all)
+/+  list    (listFromRow listCase listZip listEnumFrom)
+/+  cord    (explode isDigit isAlpha cordWeld)
+
+/+  macro   (mergeHeir cnsE rexGetWord rexGetNode rexCase)
+/+  macro   (eitherRowTraverse gensymMacro)
+/+  macro   (gensymE letE varE WORD appE natE NODE)
+
+/+  hax     ("#")
+
+
+;;;;;;;;;;;;;;;;;;;;;
+;; Reading Symbols ;;
+;;;;;;;;;;;;;;;;;;;;;
+
+= (okaySymbolChar c)
+| or eql-"_"-c
+| or isAlpha-c
+     isDigit-c
+
+= (okaySymbol cord)
+| if (eql 0 cord) F
+@ chars explode-cord
+@ c0 idx-0-chars
+| and (not isDigit-c0)
+| all okaySymbolChar chars
+
+= (readSymbol rex)
+! rexGetWord rex LEFT-[rex "`readSymbol` expected a NAME node"]
+& n
+| ifNot okaySymbol-n LEFT-[rex "Invalid Character in Symbol"]
+| RIGHT n
+
+; readRowOfName :: Text -> Rex -> Either (Rex, Text) [Text]
+= (readRowOfNames ctx rex)
+; trk %[=ctx =rex]
+@ err
+   | LEFT
+   , rex
+   | cordWeld ctx
+   | " pattern must be a symbol (x) or a row of: (x,y,z)"
+; trk %[=err]
+! rexCase rex
+         & (rune kids heir)
+         ; trk [%node %[=rune =kids =heir]]
+         | if (neq rune ",") | err
+         | if (neq heir 0)   | LEFT
+                             , rex """name-sequence cannot have an heir
+         ; trk [%TO_OPEN (eitherRowTraverse readSymbol kids)]
+         | eitherRowTraverse readSymbol kids
+      & _
+      ; trk [%word rex readSymbol-rex]
+      ! eitherOpen readSymbol-rex
+      & res
+      ; trkVal %[=res branch="WORD"]
+      | idx 0 res
+   (_ & err)
+   (_ & err)
+   (_ & err)
+
+;;; TODO Macro should take the whole expression
+;;; in as an argument.  Easier for testing and
+;;; easier to generate error messages.  I give
+;;; no fucks about the aditional edge-case
+
+= (isOpenRowExp rex)
+! rexGetNode rex 0
+& (rune kids heir)
+| and (gte len-kids 1)
+! rexGetNode idx-0-kids 0
+& (rune kids heir)
+| eql rune ","
+
+;; TODO: Implement this directly, not as a macro that expands to a macro.
+= (openRowE vars expr body)
+@ names (NODE "," map-varE-vars)
+; trkVal "OPEN"
+| NODE "#" [[1 %openRow] names expr body]
+
+= ("#openRow" env nex xs mK)
+. env nex xs mK
+| gensymMacro "#openRow" ;; TODO Fix macro interface
+   ,, readRowOfNames "In *~ names list,"
+   ,, RIGHT
+   ,, RIGHT
+& (nex names vecExp bodExp)
+@ tmpIdn gensymE-nex
+@ bindSlots
+   ? (bindSlots lis)
+   ! listCase lis bodExp
+   & (idxVar more)
+   @ ix idx-0-idxVar
+   @ vr idx-1-idxVar
+   | letE (WORD vr) appE-[cnsE-idx natE-ix tmpIdn]
+   | bindSlots more
+| RIGHT
+, 1
+| letE tmpIdn vecExp
+| bindSlots (listZip listEnumFrom-0 listFromRow-names)
+
+?? | eql 7
+   # openRow [x y] [3 4]
+   | add x y
+
+?? | eql 5
+   # openRow [x y z] [2 3]
+   | add x (add y z)
+
+^-^ "#openRow"
+^-^ openRowE isOpenRowExp
+^-^ okaySymbol readSymbol

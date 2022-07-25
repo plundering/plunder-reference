@@ -65,41 +65,41 @@ table =
   [("add"      ,addJet      ,xx "DmQSboknWfMEi5VSrqzM5AkXNcmEJAagtGum48t9D5yY")
   ,("sub"      ,subJet      ,xx "B6MvfHoH5QAQRCkFB3aF2GkmWZY5FssjmKV4VmDyEHjY")
   ,("mul"      ,mulJet      ,xx "DLZ7asf6Z8JKVJh7XYdPE2vvchwLi8SYDqg1KdmRPGWM")
-  ,("aeq"      ,aeqJet      ,xx "GpwM7oWc9qNujghF21rnG4eSPrbTYEdLvjTW8ET2WX2v")
+  ,("aeq"      ,aeqJet      ,xx "9N5XGPQqq1iTF96ff55vLbiFrPdyG44midJ7rPABWtXK")
   ,("bex"      ,bexJet      ,xx "3r98Xw8DcPxaa3fG5UVGPbPN7Bz4ZDYXQ98d1KcNLzhM")
-  ,("mod"      ,modJet      ,xx "DZ9wrRW6rtcZsGPeVHBcdh9ohAz1NYuzVCApXVcExH5K")
-  ,("div"      ,divJet      ,xx "HUUEAxqgVoFNd2zVFRPhFuaJYese1S5JaQU7JF7BTDDy")
-  ,("eql"      ,eqlJet      ,xx "ChSVfUm3xqxJmoiGNyDSaDN9M2zQvEEZYgCL8tTUHY7V")
-  ,("trk"      ,trkJet      ,xx "8ZuE9KAorFXCGehzTxVx5StfhJnYhWS4BDPSExYvSx2F")
+  ,("mod"      ,modJet      ,xx "27HkFF4zJb7KLPk8D9GcVm8PT5rF7LptAQi2kqEgsYLv")
+  ,("div"      ,divJet      ,xx "9EFxnWToC1kFwPXtgj5S7F4VEpUJtaxgk8WJN5hsRLpA")
+  ,("eql"      ,eqlJet      ,xx "D9HHouzoaTBYUvUetj2rqVYTwKX2GNRqbDhZ7LB4Uush")
+  ,("trk"      ,trkJet      ,xx "DCwrK91sjJddiSyrP7ZMy6Lyu6rpf2tYqf7eqsLcfMhs")
   ,("die"      ,dieJet      ,xx "3Gojkov63gvagvD5ecU8GC8MtcStBu2N4MLm1X9sK7pA")
 
-  ,("idx"      ,idxJet      ,xx "C8dxzGLJJ6R7Apu4StQv9b5KjTfdwKHDAkKnxEQNwscn")
-  ,("get"      ,getJet      ,xx "H9gR72iTCM8robXqaXCqhpvhsNvJzuW2Hb5wznos5Hbr")
-  ,("len"      ,vlenJet     ,xx "GR2K2hKrcgvouNYRCqHf9bXndCX63CkW55HTXQ27ZpAg")
-  ,("weld"     ,vweldJet    ,xx "2PPYgT57wNLCcuSiptLejR7Kgcoi5gyBKqB7qQwUqhHW")
-  ,("map"      ,vmapJet     ,xx "BTmhXNvvVZGfMKFoiqpLrBStySRR2vv77jxvG51uJ2wZ")
-  ,("put"      ,vputJet     ,xx "3P8sfv71mNTjYoMYHVc9n64SPgjiCYUmbCPGoZsXnrHw")
-  ,("take"     ,vtakeJet    ,xx "AqfaAe4YfJP3oEswEdaDv6VT5gUv7xZwDndZ9rXoVFKz")
-  ,("drop"     ,vdropJet    ,xx "GjY4qebZUQJZKhmUUuF5PBF8NXZupyDHqFLwCzukG3W7")
+  ,("idx"      ,idxJet      ,xx "FW8n6pBV48Z8hhQcW2niWDTKkpvYeNRbuEJF9JjU2wUF")
+  ,("get"      ,getJet      ,xx "EHUibM4eUSGd6uRXkRGmKGhKpQcPZQ8RX6pdx6q3VWZQ")
+  ,("len"      ,vlenJet     ,xx "BjBc5TwfPCLKaQwx9PtXAaUUQR1uVwptNeF46YYZVsXA")
+  ,("weld"     ,vweldJet    ,xx "Grnt1Kea92evqAJhXLm6K4u3zzEZY1KgGoAinxg5Zx3J")
+  ,("map"      ,vmapJet     ,xx "2vuRXERRgMKjjHfGbFqdqorj2awf7MNTTThh9Yz8TqYW")
+  ,("put"      ,vputJet     ,xx "FSxWmboBQnfET7cES8r5KTUxq2yL69VDYvhG6YhufXfG")
+  ,("take"     ,vtakeJet    ,xx "Cndo1nzYGmPzM7ZKZySXEDYgydHTQ2aK6qYc7ZsRxn9k")
+  ,("drop"     ,vdropJet    ,xx "AHNJ9xXbuU3s2HaGTCBra9h92S1Q3QCU6t2Y5D5xWNvh")
 
-  ,("barIdx"   ,bIdxJet     ,xx "DQAGQvisSEV2cRP5uXMK35GsMTeG5ebdLSrvv9stcBLi")
-  ,("barWeld"  ,bWeldJet    ,xx "AmySpbLnjrYBuaJMa3GUuLaJnQpE8q2k1oEh4ydYUm6d")
-  ,("barConcat",bConcatJet  ,xx "4gaKDafLabpgQEn7M9huYPkwVcVaqPCrunACQ46umVwP")
+  ,("barIdx"   ,bIdxJet     ,xx "LRbg5M7rhKNm24TUjVG4Y1WPz48ADEgT81UqeYjvH39" )
+  ,("barWeld"  ,bWeldJet    ,xx "ABTFDM1qcfm6M5Jmg4ZZZ5bMwPZ5dP2MtSQ1Di3F4g5B")
+  ,("barConcat",bConcatJet  ,xx "51QytyeBfVoqhNFzfE73VJRSdFcR149nzt9QPQKph3DK")
 
-  ,("add32"    ,add32Jet    ,xx "HZ4jJ3MzmHSf4QmH1Razq2WoyangLiSMLx3CY1WGB4M9")
-  ,("sub32"    ,sub32Jet    ,xx "BFrP5zH9gHEksWuHP5DHPCCoNxFcxwVcqcCAoGnG2DCZ")
-  ,("mul32"    ,mul32Jet    ,xx "F86MN69Za5o6PEnEW5HQphW6kUPQSPfecifofn2Lab39")
-  ,("div32"    ,div32Jet    ,xx "96dGnqxfPv32cKSnp3fqCixmM99k5qRf1G7rbF6yrcdd")
-  ,("and32"    ,and32Jet    ,xx "BKEiL4joThg96QTxUeoEAzjGHj2R7Vsg32HSHp34oj5o")
-  ,("xor32"    ,xor32Jet    ,xx "2D1bDBj9hhe449CyKudgBuLmurVBXM8U1m2muoL8QuVU")
-  ,("or32"     ,or32Jet     ,xx "BgEFftkJCvdX9cDTBq4Dmx1JFCKUkWw1GG5SZdr9Zgdz")
-  ,("lsh32"    ,lsh32Jet    ,xx "FnYGKimC3mu8antx2zJru4CHr3Uqn7vEB4mniMoqAxV8")
-  ,("rsh32"    ,rsh32Jet    ,xx "2Ppq87d11gnkGzRhgrG7i9qtBiKrW3HzcUWFushxRKTv")
-  ,("ror32"    ,ror32Jet    ,xx "6jsb1Ymq8RHVjqzcwr4bfcD3VKtkbayebqcRq9WbmzXk")
-  ,("rol32"    ,rol32Jet    ,xx "HeaanJnwYU3wy6PuqpnxsBu5U8eHnMSFJftrwapgDDgE")
+  ,("add32"    ,add32Jet    ,xx "6Au2oaZicALF5nF7cDP1bz5S2CcYuj6nVPjx9wogZ5gs")
+  ,("sub32"    ,sub32Jet    ,xx "9KPbrUn1hX18LiVGTpVChgizXyCQ27NSJrG4CEeri9nC")
+  ,("mul32"    ,mul32Jet    ,xx "7jLYXUcQL1zaT5Y46eMH67UnanMGta6w6cebhpbofdgZ")
+  ,("div32"    ,div32Jet    ,xx "6ySiS6RwDcoap2yWjJbrzXiamKBzg7MbUKjCZ9nNpptH")
+  ,("and32"    ,and32Jet    ,xx "8KyvRkbfS9xLkwexzmejmtm4hY4uwD2weTKPCkvEYRrj")
+  ,("xor32"    ,xor32Jet    ,xx "9STJngUoe39edCS4FnzrsbwfHxmhNF3xkEdjSQyrNoVg")
+  ,("or32"     ,or32Jet     ,xx "C5Xa6HiQ4hCBeBZB4qEeaj1s8ve17j3d243YYbtxxPsK")
+  ,("lsh32"    ,lsh32Jet    ,xx "87C1HgzwCfapDvg5ur96h7xbMszTGprrM4VYTzCe2dnJ")
+  ,("rsh32"    ,rsh32Jet    ,xx "D7W5buhQactB92iqVMZV1xrLfSXvsFU5yBRs2VmG1dSo")
+  ,("ror32"    ,ror32Jet    ,xx "7yLzVGehwXUdNDCnYkwaExnSAdyJbeBUHzW4TcPzdZRZ")
+  ,("rol32"    ,rol32Jet    ,xx "ArL87U2iS2AEPZHkfa7mLtMkRiH9B4xTVFxieSjU3ouX")
 
-  ,("concat"   ,concatJet   ,xx "AEh2p2qFhPpNpf6NZW51tHg2wVdKTPUqD3tnNRpo92XX")
-  ,("implode"  ,implodeJet  ,xx "BDRLL79BC9ZpfnZoPrJdCFPupLuMHZawTC8yz6SqRgWN")
+  ,("concat"   ,concatJet   ,xx "12cuobpCrUHuWs9SKc8UCMjN88bcw5fqRep5wTNeaBMK")
+  ,("implode"  ,implodeJet  ,xx "EZ9cK7jLwuTriH9wFRrFU6LfTvsfxk6SSrs5a1jgy2k" )
   ]
  where
   concatJet k v@[x] = orExec k v do
@@ -124,7 +124,7 @@ table =
 
   orExec core _  (Just x) = x
   orExec core xs Nothing  = case core of
-      PLN _ (LAW l) -> lawExec l (core:xs)
+      PLN _ (FUN l) -> lawExec l (core:xs)
       _             -> foldl' (%%) core xs
 
   orExecTrace _ core xs res = orExec core xs res
@@ -260,7 +260,7 @@ jetMatch :: Pin -> Pin
 jetMatch b@(P _ref _blob haz _exe core) = unsafePerformIO $ do
     let hashText = encodeBtc haz
     let name = case core of
-                 PLN _ (LAW l) -> lawNameText $ lawName l
+                 PLN _ (FUN l) -> lawNameText $ lawName l
                  _             -> ""
     if not (member name allJetNames)
     then pure b

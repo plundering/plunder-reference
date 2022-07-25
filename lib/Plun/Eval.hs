@@ -25,7 +25,7 @@ import Plun.Types
 import PlunderPrelude            hiding (hash)
 
 import Jar          (capBSExn, jar)
-import Jar.Noun     (showJarBits)
+import Jar.Util     (showJarBits)
 import Jar.Nounable (Hash256(..), Nounable(..), NounView(..))
 
 import qualified BLAKE3         as B3
@@ -62,14 +62,18 @@ overBook f s = s { stBook = f (stBook s) }
 
 mkLaw :: LawName -> Nat -> Pln -> Pln
 mkLaw nam arg (force -> bod) =
-    if arg==0 then AT 0 else
-    fromMaybe law $ fmap (nodVal . DAT)
-                  $ matchData nam arg bod
+    if arg==0
+      then
+        let res = executeLaw prg [res]
+        in res
+      else
+        fromMaybe law $ fmap (nodVal . DAT)
+                      $ matchData mkPin'' nam arg bod
   where
-    law = nodVal $ LAW
+    prg = compileLaw nam arg bod
+    law = nodVal $ FUN
                  $ L nam arg bod
-                 $ executeLaw
-                 $ compileLaw nam arg bod
+                 $ executeLaw prg
 
 {-
     -   Jam body prefixed by reference-list.
@@ -85,7 +89,10 @@ cryptographicIdentity refs jamBody =
     digestBytes d = BA.copyAndFreeze d (const $ pure ())
 
 mkPin :: Pln -> Pln
-mkPin = nodVal . PIN . unsafePerformIO . mkPin'
+mkPin = nodVal . DAT . mkPin''
+
+mkPin'' :: Pln -> Dat
+mkPin'' = PIN . unsafePerformIO . mkPin'
 
 mkPin' :: MonadIO m => Pln -> m Pin
 mkPin' inp = do
@@ -99,7 +106,7 @@ mkPin' inp = do
     -- showJarBits core
 
     -- Just for debugging purposes, we deserialize each pin and validate.
-    capBSExn (nodVal . PIN <$> ref) byt >>= \case
+    capBSExn (nodVal . DAT . PIN <$> ref) byt >>= \case
         trip | trip==core -> pure ()
         trip              -> do putStrLn ("INP:" <> tshow core)
                                 showJarBits core
@@ -109,7 +116,7 @@ mkPin' inp = do
 
     let haz = cryptographicIdentity ref byt
         exe = case core of
-                PLN _ (LAW l) -> \xs -> lawExec l (core:xs)
+                PLN _ (FUN l) -> \xs -> lawExec l (core:xs)
                 v             -> foldl' (%%) v
         res = stFast (P ref byt haz exe core)
 
@@ -163,39 +170,36 @@ eval :: Nod -> [Pln] -> Pln
 eval nod args = case nod of
     APP pf px -> eval pf (px:args)
     NAT n     -> execNat n args
-    LAW l     -> lawExec l (nodVal nod : args)
-    PIN g     -> pinExec g args
+    FUN l     -> lawExec l (nodVal nod : args)
     DAT dj    -> evalData args dj
 
 execNat :: Nat -> [Pln] -> Pln
-execNat 0 [n,a,b]     = mkLaw (LN $ toNat n) (toNat a) b
-execNat 1 [p,l,a,n,x] = wut p l a n x
-execNat 2 [z,p,x]     = case toNat x of { 0 -> z; n -> p %% AT(n-1) }
-execNat 3 [x]         = AT (toNat x + 1)
-execNat 4 [v]         = mkPin v
-execNat _ _           = AT 0
+execNat 0 [n,a,b]   = mkLaw (LN $ toNat n) (toNat a) b
+execNat 1 [f,a,n,x] = wut f a n x
+execNat 2 [z,p,x]   = case toNat x of { 0 -> z; n -> p %% AT(n-1) }
+execNat 3 [x]       = AT (toNat x + 1)
+execNat _ _         = AT 0
 
 toNat :: Pln -> Nat
 toNat (PLN _ (NAT n)) = n
 toNat (PLN _ _      ) = 0
 
-wut :: Pln -> Pln -> Pln -> Pln -> Pln -> Pln
-wut p l a n (PLN args nod) = case nod of
-    PIN P{..} -> p %% pinItem
-    LAW L{..} -> l %% AT (lawNameNat lawName) %% AT lawArgs %% lawBody
-    APP f x   -> a %% (PLN (args+1) f) %% x
-    NAT{}     -> n
+wut :: Pln -> Pln -> Pln -> Pln -> Pln
+wut f a n x@(PLN args nod) = case nod of
+    FUN L{..} -> f %% AT (lawNameNat lawName) %% AT lawArgs %% lawBody
+    APP g y   -> a %% (PLN (args+1) g) %% y
+    NAT{}     -> n %% x
     DAT dj    -> dataWut goLaw goApp dj
       where
-        goApp x y      = a %% x %% y
-        goLaw nm ar bd = l %% AT (coerce nm) %% AT ar %% bd
+        goApp g y      = a %% g %% y
+        goLaw nm ar bd = f %% AT (lawNameNat nm) %% AT ar %% bd
 
 valLawBody :: Pln -> Pln
 valLawBody = \case
-    PLN _ (LAW(L{..})) -> lawBody
-    PLN _ (PIN(P{..})) -> valLawBody pinItem
-    PLN _ (DAT dj)     -> dataWut (\_ _ b -> b) (\_ _ -> AT 0) dj
-    PLN _ _            -> AT 0
+    PLN _ (FUN(L{..}))      -> lawBody
+    PLN _ (DAT(PIN(P{..}))) -> valLawBody pinItem
+    PLN _ (DAT dj)          -> dataWut (\_ _ b -> b) (\_ _ -> AT 0) dj
+    PLN _ _                 -> AT 0
 
 data Prog = PROG
     { arity :: !Int
@@ -261,14 +265,14 @@ instance Nounable Pln where
     type NounRef Pln = Pin
     mkCell = (%%)
     mkAtom = nodVal . NAT
-    mkRefr = nodVal . PIN
+    mkRefr = nodVal . DAT . PIN
 
     nounView = fromNod . valNod
       where
         fromLaw = \(LN n) a b -> APPISH (AT 0 %% AT n %% AT a) b
         fromNod = \case
-            NAT n   -> NATISH n
-            DAT d   -> dataWut fromLaw APPISH d
-            APP f x -> APPISH (nodVal f) x
-            LAW r   -> fromLaw (lawName r) (lawArgs r) (lawBody r)
-            PIN p   -> REFISH p (Hash256 $ pinHash p)
+            NAT n       -> NATISH n
+            DAT (PIN p) -> REFISH p (Hash256 $ pinHash p)
+            DAT d       -> dataWut fromLaw APPISH d
+            APP f x     -> APPISH (nodVal f) x
+            FUN r       -> fromLaw (lawName r) (lawArgs r) (lawBody r)

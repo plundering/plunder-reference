@@ -1,0 +1,114 @@
+;;; TODO Use `sed` to generate these for different word sizes (32,
+;;; 48, 64).
+;;;
+;;; TODO Split into w32 and i32.
+;;;
+;;; TODO Figure out why this diverges from w48, and if any of those
+;;; divergencies matter.
+
+;;; /+  w32  (w32 wMax32 wMin32)
+;;; /+  w32  (inc32 dec32 add32 mul32 div32)
+;;; /+  w32  (lth32 gth32 lte32 gte32 eql32)
+;;; /+  w32  (not32 and32 or32 xor32 lsh32 rsh32)
+;;; /+  w32  (chop32 isZero32 sub32 ror32 rol32)
+;;; /+  w32  (bitFlip32)
+;;;
+;;; /+  w32  (i32 iMax32 iMin32)
+;;; /+  w32  (iIsZero32 iIsNeg32 iNeg32 iAbs32)
+;;; /+  w32  (iGth32 iLth32 iGte32 iLte32 iEql32)
+;;; /+  w32  (iInc32 iDec32 iAdd32 iSub32)
+;;; /+  w32  (iMul32 iDiv32)
+
+/+  bool  (if not xor and or)
+/+  nat   (inc dec add sub mul div mod bex)
+/+  nat   (lth gth lte gte aeq)
+/+  nat   (lsh rsh dis con mix)
+
+;;;;;;;;;;;;;;;;;;
+;; 32-bit Words ;;
+;;;;;;;;;;;;;;;;;;
+
+= (bex32)  | bex 32
+= (bex31)  | bex 31
+= (wMax32) | dec bex32
+= (wMin32) | 0
+= (iMax32) | dec bex31
+= (iMin32) | bex31
+= (w32 x)  | mod x bex32
+= (i32 x)  | mod x bex32
+
+= (inc32 x)   | w32 (inc x)
+= (dec32 x)   | 2 wMax32 v&v x
+= (add32 x y) | w32 (add w32-x w32-y)
+= (mul32 x y) | w32 (mul w32-x w32-y)
+= (div32 x y) | div w32-x w32-y
+= (not32 x)   | not w32-x
+= (lth32 x y) | lth w32-x w32-y
+= (gth32 x y) | gth w32-x w32-y
+= (lte32 x y) | lte w32-x w32-y
+= (gte32 x y) | gte w32-x w32-y
+= (eql32 x y) | aeq w32-x w32-y
+= (and32 x y) | dis w32-x w32-y
+= (or32  x y) | con w32-x w32-y
+= (xor32 x y) | mix w32-x w32-y
+= (lsh32 x y) | and32 (lsh w32-x w32-y) wMax32
+= (rsh32 x y) | and32 (rsh w32-x w32-y) wMax32
+= (chop32 x)  | and32 x wMax32
+
+isZero32=not32
+
+= (sub32 x y)
+| if (lte32 y x)
+    | sub w32-x w32-y
+| sub (add bex32 x) y
+
+= (ror32 x y)
+| or32 (rsh32 x y)
+| lsh32 x (sub32 32 y)
+
+= (rol32 x y)
+| or32 (lsh32 x y)
+| rsh32 x (sub32 32 y)
+
+= (bitFlip32 x) | sub32 wMax32 x
+= (iNeg32 x)    | inc32 (bitFlip32 x)
+= (iIsZero32 x) | isZero32 x
+= (iInc32 x)    | inc32 x
+= (iAdd32 x y)  | add32 x y
+= (iSub32 x y)  | add32 x (iNeg32 y)
+= (iMul32 x y)  | mul32 x y
+= (iDec32 x)    | dec32 x
+= (iEql32 x y)  | eql32 x y
+= (iIsNeg32 x)  | gth32 x iMax32
+= (iAbs32 x)    | if (iIsNeg32 x) (iNeg32 x) x
+
+= (iDiv32 x y)
+@ res | div32 (iAbs32 x) (iAbs32 y)
+| if [xor iIsNeg32-x iIsNeg32-x]
+    | iNeg32 res
+| res
+
+= (iGth32 x y)
+| if (iIsNeg32 x)
+    | and (iIsNeg32 y)
+    | gth32 (iNeg32 y) (iNeg32 x)
+|
+    | or (iIsNeg32 y)
+    | gth32 x y
+
+= (iGte32 x y) | or (eql32 x y) (iGth32 x y)
+= (iLte32 x y) | iGte32 y x
+= (iLth32 x y) | iGth32 y x
+
+^-^ w32 wMax32 wMin32
+^-^ inc32 dec32 add32 mul32 div32
+^-^ lth32 gth32 lte32 gte32 eql32
+^-^ not32 and32 or32 xor32 lsh32 rsh32
+^-^ chop32 isZero32 sub32 ror32 rol32
+^-^ bitFlip32
+^-^
+^-^ i32 iMax32 iMin32
+^-^ iIsZero32 iIsNeg32 iNeg32 iAbs32
+^-^ iGth32 iLth32 iGte32 iLte32 iEql32
+^-^ iInc32 iDec32 iAdd32 iSub32
+^-^ iMul32 iDiv32

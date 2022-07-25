@@ -1,0 +1,126 @@
+/+  nat        (gte)
+/+  bool       (if and or)
+/+  combo      (apply)
+/+  eql        (eql neq)
+/+  either     (LEFT RIGHT eitherCase eitherOpen)
+/+  list_core  (listCase)
+/+  row        (len idx switch zipWith rowApply)
+/+  tab        (tabIdx tabFromRow tabToList)
+/+  macro      (eitherMap eitherRowSequence eitherRowTraverse)
+/+  macro      (cordConcat showNat HEIR WORD)
+/+  macro      (rexGetNode rexGetWord)
+/+  macro      (cnsE appE letE gensymE)
+/+  macro      (rexGetNodeFolded)
+/+  hax        ("#")
+/+  tic        ("`")
+/+  openRow    ("#openRow" "openRowE")
+/+  openRow    ("readSymbol" "okaySymbol")
+
+
+;;;;;;;;;;;;;;;;;;;;;
+;; Macro: Open Tab ;;
+;;;;;;;;;;;;;;;;;;;;;
+
+= (readSpecificRuneFolded expect rex k)
+@ err | LEFT [rex cordConcat-["Expected a '" expect "' node"]]
+! rexGetNodeFolded rex err
+& (rune params)
+| if (neq expect rune) err
+! k params
+
+("*" = $"#openRow")
+
+= (readTabPatternBinder rex)
+! readSpecificRuneFolded "=" rex
+& tisParams
+@ badWidth (LEFT [rex "Tab-Binder must have form {= k} or {= k v}"])
+| switch (len tisParams) badWidth
+,, badWidth
+,,
+   * [keyWord] tisParams
+   ! rexGetWord keyWord (LEFT "Expected a word in Tab-Binder key")
+   | (k & RIGHT-[k k])
+,,
+   * [keyWord valWord] tisParams
+   | rexGetWord keyWord (LEFT "Expected a word in Tab-Binder key")
+   & k
+   | rexGetWord valWord (LEFT "Expected a word in Tab-Binder value")
+   & v
+   | RIGHT-[k v]
+
+; readTabPattern :: Rex -> Either Rex,Text
+= (readTabPattern rex)
+! readSpecificRuneFolded "%" rex
+& cenParams
+| if (neq 1 len-cenParams)
+   (LEFT [rex "Tab-Pattern expects % rune with one parameter"])
+! readSpecificRuneFolded "," idx-0-cenParams
+& comParams
+| eitherMap tabFromRow
+| eitherRowTraverse readTabPatternBinder comParams
+
+(fromEither left right val)={! eitherCase val left right}
+
+= (readNodeMerged rex parsers k)
+@ nonNode LEFT-[rex "Expected a node"]
+! rexGetNodeFolded rex nonNode
+& (rune kids)
+| if (neq len-parsers len-kids)
+   | LEFT
+   , rex
+   | cordConcat
+   ,, "Expecting "
+   ,, showNat len-parsers
+   ,, " kids"
+! eitherOpen {eitherRowSequence | zipWith apply parsers kids}
+& params
+| rowApply k params ;; TODO Can I inline this somehow?
+
+= (openTabE patterns tmpIdn buildExp bodyExp)
+; trk [%openTabE %[=patterns =tmpIdn =buildExp =bodyExp]]
+| letE tmpIdn buildExp
+. tabToList-patterns
+? (go pats)
+! listCase pats bodyExp
+& (kv more)
+* [key val] kv
+| letE (WORD val) appE-[cnsE-tabIdx cnsE-key tmpIdn]
+| go more
+
+= (isOpenTabExp rex)
+! rexGetNode rex 0
+& (rune kids heir)
+| and (gte len-kids 1)
+! rexGetNode idx-0-kids 0
+& (rune kids heir)
+| eql rune "%"
+
+= (readOpenTabExp rex k)
+! readNodeMerged rex [readTabPattern RIGHT RIGHT] k
+
+= ("#openTab" env nex kids heir)
+! readOpenTabExp (HEIR "*" kids heir)
+& (pats buildExp bodyExp)
+@ tmpIdn (gensymE "tab")
+| RIGHT [1 (openTabE pats tmpIdn buildExp bodyExp)]
+
+
+;;;;;;;;;;;
+;; Tests ;;
+;;;;;;;;;;;
+
+?? | isOpenTabExp
+   `
+   * %[=k1 k2=foo] %[k1=9 k2=3]
+   | [%add k1 foo]
+
+?? | eql [%add 9 3]
+   # openTab %[=k1 k2=foo] %[k1=9 k2=3]
+   | [%add k1 foo]
+
+
+;;;;;;;;;;;;;
+;; Exports ;;
+;;;;;;;;;;;;;
+
+^-^ "#openTab" "isOpenTabExp" "openTabE" "readOpenTabExp"

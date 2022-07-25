@@ -1,6 +1,6 @@
-{-# OPTIONS_GHC -Wall   #-}
+{-# OPTIONS_GHC -Wall        #-}
+{-# OPTIONS_GHC -Werror      #-}
 {-# OPTIONS_GHC -Wno-orphans #-}
-{-# OPTIONS_GHC -Werror #-}
 
 {-|
     Bit-oriented serialization of noun-like data, with deduplication.
@@ -157,15 +157,15 @@ import Jar.Nounable
 import Natty
 import PlunderPrelude hiding (hash, (%))
 
-import Data.Bits                 (clearBit, setBit, shiftL, shiftR)
 import Data.Bits                 ((.&.), (.|.))
+import Data.Bits                 (clearBit, setBit, shiftL, shiftR)
 import Data.Vector.Primitive     ((!))
-import Foreign.Marshal.Alloc     (callocBytes, free, mallocBytes, reallocBytes)
 import Foreign.Marshal.Alloc     (allocaBytes)
+import Foreign.Marshal.Alloc     (callocBytes, free, mallocBytes, reallocBytes)
 import Foreign.Ptr               (Ptr, castPtr, plusPtr, ptrToWordPtr)
 import Foreign.Storable          (peek, poke, pokeElemOff)
-import GHC.Int                   (Int(I#))
 import GHC.Integer.GMP.Internals (BigNat)
+import GHC.Int                   (Int(I#))
 import GHC.Natural               (Natural(NatJ#, NatS#))
 import GHC.Prim                  (Word#, ctz#, plusWord#, word2Int#)
 import GHC.Word                  (Word(..))
@@ -292,7 +292,7 @@ compress
     -> Vector (NounRef v)
     -> v
     -> IO (Word, Ptr Word)
-compress pRegs !pins !top = do
+compress !pRegs !pins !top = do
     let !pBuf :: Ptr (Ptr Word) = pRegs `plusPtr` 0
         !pWid :: Ptr Int        = pRegs `plusPtr` 8
         !pNex :: Ptr Int        = pRegs `plusPtr` 16
@@ -424,7 +424,7 @@ serialize
     -> Vector (NounRef v)
     -> v
     -> IO ByteString
-serialize pRegs !tbl !sz !pins !tri = do
+serialize !pRegs !tbl !sz !pins !tri = do
     let !pPtr :: Ptr (Ptr Word) = pRegs `plusPtr` 0
         !pReg :: Ptr Word       = pRegs `plusPtr` 8
         !pOff :: Ptr Int        = pRegs `plusPtr` 16

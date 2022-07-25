@@ -1,0 +1,73 @@
+;;;
+;;; Operations on Closures
+;;; ======================
+;;;
+;;; `get`, `idx`, and `len` are primarily intended to be used on vectors
+;;; (and are optimized for use on vectors).  However, they work on any closure.
+;;;
+;;; TODO Golf all of these operations to remove dependencies.
+;;;
+;;; TODO Move these operations to prim.
+;;;
+
+/+  prim   (isApp appHead appTail)
+/+  combo  (S K)
+/+  nat    (inc dec aeq)
+/+  either (LEFT RIGHT eitherOpenLeft)
+/+  bool   (if ifNot not)
+
+(head non)=(if isApp-non (head appHead-non) non)
+
+(dec x)=(2 0 y&y x)
+
+= (arity x)
+@ f (_ a _)&a
+@ a (f _)&(dec arity-f)
+@ n (2 3 (2 4 (2 3 _&1)))
+| 1 f a n x
+
+= (idx ix vl)
+^ if appHead-res appTail-res 0
+= res
+. vl
+? (loop v)
+| ifNot isApp-v {! LEFT 0}
+@ hed appHead-v
+@ tel appTail-v
+! eitherOpenLeft loop-hed
+& dep
+| if aeq-ix-dep {! RIGHT tel}
+! LEFT (inc dep)
+
+(get v i)=(idx i v)
+
+(len v)=(dec (arity head-v))
+
+?? aeq 3 arity-0
+?? aeq 4 arity-1
+?? aeq 3 arity-2
+?? aeq 1 arity-3
+?? aeq 1 arity-4
+?? aeq 1 arity-5
+
+?? arity arity
+?? arity 3
+?? arity 4
+?? arity 0-1-2
+
+?? aeq 2 arity-(0 0)
+?? aeq 3 arity-0
+
+?? aeq 0 | idx 0 2
+?? aeq 3 | idx 0 (2 3)
+?? aeq 3 | idx 0 (2 3 4)
+?? aeq 4 | idx 1 (2 3 4)
+?? aeq 0 | idx 2 (2 3 4)
+
+?? aeq 0 | idx 0 1
+?? aeq 0 | idx 0 (1 0 1)
+?? aeq 1 | idx 1 (1 0 1)
+?? aeq 0 | idx 2 (1 0 1)
+
+^-^ head arity
+^-^ idx get len

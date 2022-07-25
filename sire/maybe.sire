@@ -1,0 +1,29 @@
+;;
+;; Usage:
+;;
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; data Maybe a = NONE | SOME a ;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+/+ combo  (I)
+/+ bool   (if)
+/+ prim   (cdr die isNat)
+/+ nat    (inc dec)
+
+= NONE     0
+= (SOME x) (0 x)
+
+= (maybeCase opt non som)
+| if isNat-opt non
+! som cdr-opt
+
+(fromSome n x)={! maybeCase x n I}
+
+?? maybeCase SOME-0 0 inc
+?? maybeCase SOME-1 0 I
+?? maybeCase SOME-2 0 dec
+?? maybeCase NONE   1 die
+
+^-^ NONE SOME maybeCase
+^-^ fromSome

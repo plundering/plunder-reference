@@ -86,7 +86,7 @@ import Data.Vector          ((!))
 import Jar                  (capBSExn)
 import Loot                 (keyRex)
 import Plun                 (pattern AT, (%%), Pln(PLN))
-import Plun.Types           (pattern (:#), pattern (:&))
+import Plun.Types           (pattern (:#), pattern (:&), Pin(..))
 import Rex.Print            (RexColorScheme(NoColors), rexLine)
 
 -- ort qualified Data.Char   as C
@@ -110,14 +110,14 @@ import qualified Plun      as P
 --
 --  The "name" of a pin is the name of the rule in it, or just 0.
 data Closure = CLOSURE
-    { closureEnv :: Vector (Pln, Maybe (Val Int))
+    { closureEnv :: Vector (P.Pin, Maybe (Val Int))
     , closureVal :: Val Int
     }
   deriving (Show, Generic, NFData)
 
 data NamedClosure = NAMED_CLOSURE
     { nmz :: Vector Symb
-    , env :: Map Symb (Val Symb)
+    , env :: Map Symb (Val Symb, ByteString)
     , val :: Val Symb
     }
   deriving (Show, Generic, NFData)
@@ -233,13 +233,14 @@ nameClosure :: Closure -> NamedClosure
 nameClosure (CLOSURE env val) =
     NAMED_CLOSURE names envir value
   where
-    toMap :: (Int, (Pln, Maybe (Val Int))) -> Maybe (Symb, Val Symb)
-    toMap (i, (_, mV)) = do
+    toMap :: (Int, (Pin, Maybe (Val Int)))
+          -> Maybe (Symb, (Val Symb, ByteString))
+    toMap (i, (p, mV)) = do
         v <- mV
-        pure (names!i, fmap (names!) v)
+        pure (names!i, ((names!) <$> v, pinHash p))
 
     value = (names!) <$> val
-    names = assignNames (P.valTag . fst <$> env)
+    names = assignNames (P.valTag . pinItem . fst <$> env)
     envir = mapFromList $ catMaybes
                         $ fmap toMap
                         $ toList
@@ -288,7 +289,7 @@ assignNames initialNms =
 
 -- Plun Backend ----------------------------------------------------------------
 
-type Load = State (Int, Map ByteString Int, [(Pln, Maybe (Val Int))])
+type Load = State (Int, Map ByteString Int, [(Pin, Maybe (Val Int))])
 
 valPlun :: Val Pln -> Pln
 valPlun (NAT a)          = AT a
@@ -304,20 +305,20 @@ valPlun (CAB k) | null k = P.nodVal $ P.DAT $ P.TAB mempty
 valPlun (CAB k)          = P.nodVal $ P.DAT $ P.CAB k
 
 plunAlias :: Pln -> Maybe (Val Pln)
-plunAlias (PLN _ P.PIN{}) = Nothing
+plunAlias (PLN _ (P.DAT P.PIN{})) = Nothing
 plunAlias (PLN _ topNod)  = Just (nod topNod)
   where
     go (PLN _ n) = nod n
     nod = \case
-        n@P.PIN{}       -> REF (P.nodVal n)
-        P.NAT a         -> NAT a
-        P.DAT (P.BAR b) -> BAR b
-        P.DAT (P.ROW r) -> ROW (go <$> r)
-        P.DAT (P.TAB t) -> TAB (go <$> t)
-        P.DAT (P.COW n) -> COW n
-        P.DAT (P.CAB n) -> CAB n
-        P.APP f x       -> APP (nod f) (go x)
-        P.LAW P.L{..}   -> LAW lawName lawArgs (valBod lawArgs $ go lawBody)
+        P.NAT a           -> NAT a
+        n@(P.DAT P.PIN{}) -> REF (P.nodVal n)
+        P.DAT (P.BAR b)   -> BAR b
+        P.DAT (P.ROW r)   -> ROW (go <$> r)
+        P.DAT (P.TAB t)   -> TAB (go <$> t)
+        P.DAT (P.COW n)   -> COW n
+        P.DAT (P.CAB n)   -> CAB n
+        P.APP f x         -> APP (nod f) (go x)
+        P.FUN P.L{..}     -> LAW lawName lawArgs (valBod lawArgs $ go lawBody)
 
 loadShallow :: Pln -> Closure
 loadShallow inVal =
@@ -325,12 +326,12 @@ loadShallow inVal =
     in CLOSURE (fromList $ reverse stk) top
   where
     goTop :: Pln -> Load (Val Int)
-    goTop (PLN _ (P.PIN i)) = REF <$> goTopPin i
-    goTop vl                = go vl
+    goTop (PLN _ (P.DAT (P.PIN i))) = REF <$> goTopPin i
+    goTop vl                        = go vl
 
     goTopPin :: P.Pin -> Load Int
-    goTopPin P.P{..} = do
-        kor <- (pinItem,) . Just <$> goTop pinItem
+    goTopPin pin@P.P{..} = do
+        kor <- (pin,) . Just <$> goTop pinItem
         (nex, tab, stk) <- get
         let tab' = insertMap pinHash nex tab
         put (nex+1, tab', kor:stk)
@@ -340,26 +341,26 @@ loadShallow inVal =
     go (PLN _ nod) =
         case nod of
             P.NAT a         -> pure (NAT a)
+            P.DAT (P.PIN b) -> REF <$> goPin b
             P.DAT (P.BAR b) -> pure (BAR b)
             P.DAT (P.ROW r) -> ROW <$> traverse go r
             P.DAT (P.TAB t) -> TAB <$> traverse go t
             P.DAT (P.COW n) -> pure (COW n)
             P.DAT (P.CAB n) -> pure (CAB n)
             P.APP f x       -> APP <$> go (P.nodVal f) <*> go x
-            P.PIN b         -> REF <$> goPin b
-            P.LAW (P.L{..}) -> do
+            P.FUN (P.L{..}) -> do
                 b <- go lawBody
                 pure $ LAW lawName lawArgs (valBod lawArgs b)
 
     goPin :: P.Pin -> Load Int
-    goPin P.P{..} = do
+    goPin pin = do
         (_, tabl, _) <- get
-        case lookup pinHash tabl of
+        case lookup (pinHash pin) tabl of
             Just i -> pure i
             Nothing -> do
-                let kor = (pinItem, Nothing)
+                let kor = (pin, Nothing)
                 (nex, tab, stk) <- get
-                let tab' = insertMap pinHash nex tab
+                let tab' = insertMap (pinHash pin) nex tab
                 put (nex+1, tab', kor:stk)
                 pure nex
 
@@ -372,28 +373,28 @@ loadClosure inVal =
     go (PLN _ nod) =
         case nod of
             P.NAT a         -> pure (NAT a)
+            P.DAT (P.PIN b) -> REF <$> goPin b
             P.DAT (P.BAR b) -> pure (BAR b)
             P.DAT (P.ROW r) -> ROW <$> traverse go r
             P.DAT (P.TAB t) -> TAB <$> traverse go t
             P.DAT (P.COW n) -> pure (COW n)
             P.DAT (P.CAB n) -> pure (CAB n)
             P.APP f x       -> goCel (P.nodVal f) x
-            P.PIN b         -> REF <$> goPin b
-            P.LAW (P.L{..}) -> do
+            P.FUN (P.L{..}) -> do
                 b <- go lawBody
                 pure $ LAW lawName lawArgs (valBod lawArgs b)
 
     goCel x y = APP <$> go x <*> go y
 
     goPin :: P.Pin -> Load Int
-    goPin P.P{..} = do
+    goPin pin = do
         (_, tabl, _) <- get
-        case lookup pinHash tabl of
+        case lookup (pinHash pin) tabl of
             Just i -> pure i
             Nothing -> do
-                kor <- (pinItem,) . Just <$> go pinItem
+                kor <- (pin,) . Just <$> go (pinItem pin)
                 (nex, tab, stk) <- get
-                let tab' = insertMap pinHash nex tab
+                let tab' = insertMap (pinHash pin) nex tab
                 put (nex+1, tab', kor:stk)
                 pure nex
 
@@ -421,17 +422,17 @@ plunVal = goVal
 
     goNod :: P.Nod -> Val Pln
     goNod = \case
-        vl@P.PIN{}       -> REF (P.nodVal vl)
-        P.NAT a          -> NAT a
-        P.APP x y        -> APP (goNod x) (goVal y)
-        P.LAW P.L{..}    -> LAW lawName lawArgs
-                                $ valBod lawArgs
-                                $ goVal lawBody
-        P.DAT (P.BAR b)  -> BAR b
-        P.DAT (P.COW n)  -> COW n
-        P.DAT (P.CAB ks) -> CAB ks
-        P.DAT (P.ROW xs) -> ROW (goVal <$> xs)
-        P.DAT (P.TAB t)  -> TAB (goVal <$> t)
+        P.NAT a            -> NAT a
+        P.APP x y          -> APP (goNod x) (goVal y)
+        P.FUN P.L{..}      -> LAW lawName lawArgs
+                                  $ valBod lawArgs
+                                  $ goVal lawBody
+        vl@(P.DAT P.PIN{}) -> REF (P.nodVal vl)
+        P.DAT (P.BAR b)    -> BAR b
+        P.DAT (P.COW n)    -> COW n
+        P.DAT (P.CAB ks)   -> CAB ks
+        P.DAT (P.ROW xs)   -> ROW (goVal <$> xs)
+        P.DAT (P.TAB t)    -> TAB (goVal <$> t)
 
 
 -- Hacked Together Snapshotting ------------------------------------------------
@@ -442,8 +443,8 @@ hashPath dir haz =
 
 plunSave :: MonadIO m => FilePath -> Pln -> m ByteString
 plunSave dir = liftIO . \case
-    PLN _ (P.PIN p) -> savePin p
-    vl              -> P.mkPin' vl >>= savePin
+    PLN _ (P.DAT (P.PIN p)) -> savePin p
+    vl                      -> P.mkPin' vl >>= savePin
   where
     savePin (P.P{..}) = do
         createDirectoryIfMissing True dir
@@ -451,7 +452,7 @@ plunSave dir = liftIO . \case
         let pax = hashPath dir pinHash
         exists <- doesFileExist pax
         unless exists $ do
-            for_ pinRefs (plunSave dir . P.nodVal . P.PIN)
+            for_ pinRefs (plunSave dir . P.nodVal . P.DAT . P.PIN)
             unless (null pinRefs) $ do
                 let dep = pax <> ".deps"
                 putStrLn ("WRITE FILE: " <> pack dep)
@@ -465,7 +466,7 @@ plunLoad :: MonadIO m => FilePath -> ByteString -> m Pln
 plunLoad dir key = liftIO do
     book <- P.stBook <$> readIORef P.state
     case lookup key book of
-        Just rl -> pure $ P.nodVal (P.PIN rl)
+        Just rl -> pure $ P.nodVal $ P.DAT $ P.PIN rl
         Nothing -> loadSnapshotDisk dir key
 
 loadDeps :: FilePath -> ByteString -> IO (Vector ByteString)

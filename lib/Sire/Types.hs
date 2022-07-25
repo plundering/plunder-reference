@@ -76,7 +76,9 @@ data Exp z v a
 
 -- |Sire input commands.
 data Cmd z v a
-  = PRINT (Exp z v a)           -- ^ @(e)@ Eval+print @e@
+  = IMPORT [(Text, Set Symb)]
+  | FILTER [Symb]
+  | OUTPUT (Exp z v a)          -- ^ @(e)@ Eval+print @e@
   | DUMPY (Exp z v a)           -- ^ @(<e)@ Eval+print @e@ and it's environment.
   | CHECK [([Rex], Exp z v a)]  -- ^ @??e@ Assert that e==1
   | DEFINE [Defn z v a]         -- ^ @(x=y)@, @((f x)=x)@ Define value,function.

@@ -82,8 +82,8 @@ runBlock h okErr vEnv (BLK _ _ eRes) = do
         bitter <- pure (let ?env=env in desugarCmd parsed)
         runCmd h vEnv bitter
 
-showPin :: RexColor => Symb -> Val Symb -> Text
-showPin self =
+showPin :: RexColor => Symb -> ByteString -> Val Symb -> Text
+showPin self _pinKey =
     rexFile . joinRex . showIt
   where
     hackup (N SHUT_INFIX "-" cs Nothing) = N NEST_PREFIX "|" cs Nothing
@@ -142,8 +142,8 @@ showClosure mBinder clz =
 
     pins = (flip mapMaybe $ toList nam) \n -> do
              lookup n env & \case
-                 Nothing -> Nothing
-                 Just vl -> Just (showPin n vl)
+                 Nothing      -> Nothing
+                 Just (vl, h) -> Just (showPin n h vl)
 
     tops = case (pins, mBinder, val) of
              (_, Just n, REF m) | m==n -> []

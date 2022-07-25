@@ -1,8 +1,7 @@
-{0}=4
 (K a b)=a
 (S a b c)=(a c b-c)
 (I a)=(S K K a)
-_=[0-1 1-2 4 $0 0 (K S-I)]
+_=[0-1 1-2 4 0 0 (K S-I)]
 
-_hash=X'a3fe30eefca1a9e468b4511ee0e75e6528ee4daab329176e0340d5c8dda504be'
+_hash=(x#d3143353724a5ab77b27e2edd2741b9c0565b162c876c154e49795738ecad5c6)
 

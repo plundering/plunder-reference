@@ -1,0 +1,142 @@
+/+  apply      (idx)
+/+  bool       (if ifNot and or not T)
+/+  combo      (apply supply)
+/+  eql        (eql)
+/+  list_core  (CONS NIL listCase listHead listSafeHead listUnsafeHead)
+/+  nat        (inc dec mod div add aeqZero lth blockWeld)
+/+  prim       (seq)
+/+  row        (foldl foldr)
+/+  row        (mkRow)
+
+= (listFoldl f z l)
+! listCase l z
+& (x xs)
+@ fzx (f z x)
+| seq fzx
+| listFoldl f fzx xs
+
+= (listFoldr f z l)
+! listCase l z
+& (x xs)
+| f x (listFoldr f z xs)
+
+= (listMap f l)
+! listCase l NIL
+& (x xs)
+! CONS f-x listMap-f-xs
+
+(listTurn l f)=(listMap f l)
+
+= (listLen l)           | listFoldr (x acc & inc acc) 0 l
+= (listSum l)           | listFoldr add 0 l
+= (listToRow l)         | listFoldl apply mkRow-(listLen l) l
+= (listToRowReversed l) | listFoldr supply mkRow-(listLen l) l
+= (listFromRow v)       | foldr CONS NIL v
+= (listAnd v)           | listFoldr and T v
+= (listOr v)            | listFoldr or 0 v
+= (listSum v)           | listFoldr add 0 v
+= (listAll f v)         | listAnd listMap-f-v
+= (listAny f v)         | listOr listMap-f-v
+= (listHas e xs)        | listAny eql-e xs
+= (listEnumFrom n)      ! CONS n (listEnumFrom inc-n)
+
+= (listWeld a b)
+! listCase a b
+& (x xs)
+! CONS x (listWeld xs b)
+
+; Lis (Lis a) > Lis a
+= (listConcat ls)
+! listCase ls NIL
+& (x xs)
+| listWeld x
+| listConcat xs
+
+= (listTake num lis)
+| ifNot num NIL
+! listCase lis NIL
+& (x xs)
+! CONS x
+| listTake dec-num xs
+
+= (listDrop num lis)
+| ifNot num lis
+! listCase lis NIL
+| (x xs & listDrop dec-num xs)
+
+; Convert a nat into a list of digits.
+; TODO: Use `until`?
+= (listDigits num)
+| ifNot num (CONS %0 0)
+. num NIL
+? (loop mor acc)
+| seq acc
+| ifNot mor acc
+@ char (add (mod mor 10) "0")
+@ left (div mor 10)
+| loop left {! CONS char acc}
+
+; Convert a nat into a row of digits.
+= (digits num) (listToRow listDigits-num)
+
+= (listZipWith f al bl)
+! listCase al NIL
+& (a as)
+! listCase bl NIL
+& (b bs)
+! CONS f-a-b
+  (listZipWith f as bs)
+
+(listZip a b)=(listZipWith R2 a b)
+
+?? @ expect  ! CONS [3 4] ! CONS [4 5] NIL
+   @ compute | listZip listFromRow-[3 4] listFromRow-[4 5]
+   | eql expect compute
+
+= (listFilter f lis)
+! listCase lis NIL
+& (x xs)
+| if f-x {! CONS x listFilter-f-xs}
+| listFilter f xs
+
+(listNull lis)=(aeqZero idx-0-lis)
+
+;; TODO If I implement inline lambdas, can I use a `list` destructuring
+;;      function to generate this same code?  That would be useful
+;;      because I want the pattern matching syntax to be a macro, but
+;;      this part of the code probably comes before the macro
+;;      implementation.
+
+= (listMinimumOn f a bs)
+! listCase bs a
+& (x xs)
+| listMinimumOn f
+   | if (lth f-x f-a) x a
+| xs
+
+= (listSortOn f lis)
+! listCase lis NIL
+& (x xs)
+@ fst | listMinimumOn f x xs
+@ fky | f fst
+@ rst | listSortOn f
+      | listFilter x&(not (eql fky f-x))
+      | lis
+! CONS fst rst
+
+; TODO This is out of place!
+= (sortOn f row)
+| listToRow
+| listSortOn f
+| listFromRow row
+
+^-^ NIL CONS
+^-^ listCase
+^-^ listMap listTurn
+^-^ listHead listSafeHead listUnsafeHead
+^-^
+^-^ listFoldl listFoldr listMap listTurn listLen listSum listToRow
+^-^ listToRowReversed listFromRow listAnd listOr listSum listAll listAny
+^-^ listHas listEnumFrom listWeld listConcat listTake listDrop listDigits
+^-^ digits listZipWith listZip listFilter listNull listMinimumOn listSortOn
+^-^ sortOn

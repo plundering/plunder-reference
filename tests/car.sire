@@ -1,3 +1,5 @@
+;; TODO Need to fix this since pin shape has changed.
+
 = (car x) | 1 _&4 (n a _ & 0 n a) (h _ & h) 0 x
 = (cdr x) | 1 x&x (_ _ b & b)     (_ t & t) 0 x
 

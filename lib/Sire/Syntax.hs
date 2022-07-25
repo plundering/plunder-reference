@@ -99,11 +99,12 @@ import Loot.Types (Val(..), XTag(xtagIdn), xtagTag, LawName(..))
 import Sire.Types
 import Loot.Backend (valPlun, plunVal)
 
-import Loot.Syntax (readArgs, readSymb, readBymb, readSigy, readKey)
+import Loot.Syntax (readIdnTxt, readKey, readSymb, readBymb)
+import Loot.Syntax (readArgs, readSigy)
 import Loot.Syntax (readNat)
 import Loot.Syntax (readXTag, simpleTag)
 import Loot.Syntax (rForm1Nc, rFormNc)
-import Loot.Syntax (rForm2c, rForm1c, rFormN1c, rForm3c)
+import Loot.Syntax (rForm2c, rForm1, rForm1c, rFormN1c, rForm3c)
 import Sire.Macro  (rexVal, loadRex, loadRow)
 import Plun.Print  (dent)
 
@@ -176,39 +177,63 @@ withRex red = (,) <$> getRex <*> red
   where
    getRex = fmap (const $ error "impossible") <$> readRex
 
+readImports :: Red [(Text, Set Symb)]
+readImports = do
+    rune "/+"
+    asum
+        [ do i <- form1 readIdnTxt
+             pure [(i, mempty)]
+        , do (i,xs) <- form1C readIdnTxt readImports
+             pure ((i,mempty):xs)
+        , do (i,rs) <- form2 readIdnTxt nameList
+             pure [(i, setFromList rs)]
+        , do (i,rs,xs) <- form2C readIdnTxt nameList readImports
+             pure ((i, setFromList rs):xs)
+        ]
+  where
+    nameList = (singleton <$> readKey) <|> (rune "|" >> formN readKey)
+
+readFilter :: Red [Symb]
+readFilter = do
+    rune "^-^"
+    formNe readKey readFilter <&> \case
+        (is, Nothing)   -> is
+        (is, Just more) -> is <> more
+
 readCmd :: HasMacroEnv => Red XCmd
 readCmd = asum
-    [ do rune "??"
+    [ rune "=" >> readDefine
+    , IMPORT <$> readImports
+    , FILTER <$> readFilter
+    , do rune "??"
          checks <- slip1N "??" (withRex readExpr) (withRex readExpr)
          let bld :: ((Rex,XExp),[(Rex,XExp)]) -> ([Rex],XExp)
              bld (v,vs) =  ( fst v : (fst <$> vs)
                            , foldl' EAPP (snd v) (snd <$> vs)
                            )
          pure $ CHECK $ fmap bld checks
-    , do rForm1c "#?" readExpr EPLOD
     , do rune "<"
          (v,vs) <- form1Nc readExpr readExpr
          pure (DUMPY $ foldl' EAPP v vs)
-    , do rune "="
-         res <- slip2 "=" readBinder readExpr
-         pure $ DEFINE $ res <&> \((t,args),b) ->
-             let nm = xtagIdn t
-                 tg = xtagTag t
-             in
-                 case args of
-                     []   -> BIND_EXP nm b
-                     r:rs -> BIND_FUN nm (FUN nm (LN tg) (r:|rs) b)
-             -- ((t,r:rs),b) -> BIND_FUN (xtagIdn t) _ -- args b
-                               -- where i = agIdn t) _ -- args b
-
--- data Fun z v a = FUN v LawName (NonEmpty v) (Exp z v a)
     , do rune "<-"
          let readIdns = rune "," >> form2 readSymb readSymb
          ((rid,res), exr) <- form2 readIdns readExpr
          pure (IOEFF rid res exr)
-    , SAVEV <$> (rune "<<" >> form1 readExpr)
-    , PRINT <$> readExpr
+    , SAVEV <$> (rForm1 "<<" readExpr id)
+    , rForm1c "#?" readExpr EPLOD
+    , OUTPUT <$> readExpr
     ]
+  where
+    readDefine = do
+        res <- slip2 "=" readBinder readExpr
+        pure $ DEFINE $ res <&> \((t,args),b) ->
+            let nm = xtagIdn t
+                tg = xtagTag t
+            in
+                case args of
+                    []   -> BIND_EXP nm b
+                    r:rs -> BIND_FUN nm (FUN nm (LN tg) (r:|rs) b)
+
 
 -- Functions -------------------------------------------------------------------
 
@@ -412,29 +437,22 @@ readBinder = simple <|> complex
         rune "|" <|> rune "-" <|> rune "!"
         form1N readXTag readSymb
 
--- TODO Make this a macro.
+-- TODO Tabs now use `=key` an cabs just use `key`.
 readOpenTabish :: HasMacroEnv => Red XExp
-readOpenTabish =
-    slip1N "%%" readKey readExpr >>= combine
-  where
-    noMix = unlines
-        [ "Is this supposed to be a Tab or a Cab?"
-        , ""
-        , "Some entries have values and some do not."
-        ]
+readOpenTabish = do
+    rex <- readRex
+    case rex of
+        N _ "%%" (N _ "=" [_] _ : _) _ -> ETAB <$> readOpenTab
+        _                              -> ECAB <$> Loot.readOpenCab
 
-    apple :: [XExp] -> XExp
-    apple []     = error "impossible: We already checked this."
-    apple (x:xs) = foldl' EAPP x xs
-
-    combine :: [(Nat, [XExp])] -> ReadT v IO XExp
-    combine pairs = do
-        let keySet = setFromList (fst <$> pairs)
-        let values = snd <$> pairs
-        when (length pairs /= length keySet) do
-            throwError "Duplicated Key"
-            -- TODO Find and show the offending key.
-        if | all null values -> pure (ECAB keySet)
-           | any null values -> throwError noMix
-           | otherwise       -> (pure . ETAB . mapFromList)
-                              $ over _2 apple <$> pairs
+readOpenTab :: HasMacroEnv => Red (Map Nat XExp)
+readOpenTab = do
+    pairs <- slip1N "%%" (rune "=" >> form1 readKey) readExpr
+    let keySet = setFromList (fst <$> pairs) :: Set Nat
+    when (length pairs /= length keySet) do
+        -- TODO Find and show the offending key.
+        throwError "Duplicated Key"
+    pure $ mapFromList
+         $ turn pairs
+         $ \case (k, [])   -> (k, EREF k)
+                 (k, x:xs) -> (k, foldl' EAPP x xs)

@@ -22,6 +22,7 @@ module Plun.Types
     , LawName(..)
     , valName
     , valTag
+    , dataWut
     )
 where
 
@@ -30,8 +31,8 @@ import PlunderPrelude hiding (hash)
 import Data.Bits     (xor)
 import Data.Char     (isAlphaNum)
 import Data.Hashable (hash)
+import Data.Map      (toAscList)
 import GHC.Prim      (reallyUnsafePtrEquality#)
-import Data.Map (toAscList)
 
 import qualified Data.Set as S
 import qualified Data.ByteString as BS
@@ -117,7 +118,8 @@ fastValEq x y =
 --      | barNat | bar bex|128 bex|128
 --      ```
 data Dat
-    = ROW !(Vector Pln)
+    = PIN !Pin
+    | ROW !(Vector Pln)
     | TAB !(Map Nat Pln)
     | BAR !ByteString
     | COW !Nat       --  Construct Row
@@ -125,6 +127,7 @@ data Dat
   deriving (Eq, Generic, NFData)
 
 instance Show Dat where
+    show (PIN p) = "[" <> unpack (valName $ pinItem p) <> "]"
     show (COW n) = "R" <> show n
     show (ROW v) = "[" <> intercalate "," (show <$> v) <> "]"
     show (TAB _) = "TAB"
@@ -132,11 +135,10 @@ instance Show Dat where
     show (BAR b) = show b
 
 data Nod
-    = NAT !Nat
+    = FUN !Law
     | APP Nod Pln
-    | LAW !Law
+    | NAT !Nat
     | DAT !Dat
-    | PIN !Pin
   deriving (Eq,  Generic, NFData)
 
 -- | A Plunder value.
@@ -157,9 +159,8 @@ pCar :: Pln -> Pln
 pCar (PLN r n) = case n of
     NAT{}     -> AT 0
     APP x _   -> PLN (r+1) x
-    LAW L{..} -> law lawName lawArgs lawBody
+    FUN L{..} -> law lawName lawArgs lawBody
     DAT d     -> dataWut law (\h _ -> h) d
-    PIN{}     -> AT 4
   where
     law nm ar _ = PLN 1 (NAT 0 `APP` AT (lawNameNat nm)
                                `APP` AT ar)
@@ -168,31 +169,29 @@ pCdr :: Pln -> Pln
 pCdr (PLN r n) = case n of
     NAT{}      -> AT 0
     APP x _    -> PLN (r+1) x
-    LAW L{..}  -> law lawName lawArgs lawBody
+    FUN L{..}  -> law lawName lawArgs lawBody
     DAT d      -> dataWut law (\_ t -> t) d
-    PIN(P{..}) -> pinItem
   where
     law _ _  b = b
 
 valName :: Pln -> Text
-valName (PLN _ (LAW L{..})) =
+valName (PLN _ (FUN L{..})) =
     let nat = lawNameNat lawName
     in either (const $ tshow nat) id (natUtf8 nat)
-valName (PLN _ (PIN(P{..}))) =
+valName (PLN _ (DAT (PIN P{..}))) =
     valName pinItem
 valName _ =
     "_"
 
 valTag :: Pln -> Nat
-valTag (PLN _ (LAW L{..}))  = lawNameNat lawName
-valTag (PLN _ (PIN(P{..}))) = valTag pinItem
-valTag _                    = 0
+valTag (PLN _ (FUN L{..}))       = lawNameNat lawName
+valTag (PLN _ (DAT (PIN P{..}))) = valTag pinItem
+valTag _                         = 0
 
 instance Show Nod where
     show (NAT n)   = show n
     show (APP f x) = "(" <> intercalate " " (show <$> unApp f [x]) <> ")"
-    show (LAW l)   = show l
-    show (PIN p)   = "[" <> unpack (valName $ pinItem p) <> "]"
+    show (FUN l)   = show l
     show (DAT d)   = show d
 
 unApp :: Nod -> [Pln] -> [Pln]
@@ -229,13 +228,13 @@ instance Hashable Nod where
     hash = \case
         NAT n           -> fromIntegral n
         APP x y         -> hashMix (hash x) (hash y)
-        LAW (L n t _ _) -> hash n `hashMix` hash t
+        FUN (L n t _ _) -> hash n `hashMix` hash t
+        DAT (PIN p)     -> hash p
         DAT (BAR b)     -> hash b
         DAT (ROW r)     -> hash r
         DAT (CAB k)     -> hash k
         DAT (COW n)     -> hash n
         DAT (TAB m)     -> hash m
-        PIN p           -> hash p
     hashWithSalt salt x =
         salt `hashMix` hash x
 
@@ -247,8 +246,8 @@ instance Hashable Pln where
 -- Utilities -------------------------------------------------------------------
 
 isPin :: Pln -> Bool
-isPin (PLN _ (PIN{})) = True
-isPin (PLN _ _)       = False
+isPin (PLN _ (DAT PIN{})) = True
+isPin (PLN _ _)           = False
 
 nodVal :: Nod -> Pln
 nodVal n = PLN (evalArity n) n
@@ -290,19 +289,19 @@ trueArity = \case
 
 {-# INLINE natArity #-}
 natArity :: Nat -> Nat
-natArity 0 = 3 -- LAW
-natArity 1 = 5 -- CAS
+natArity 0 = 3 -- FUN
+natArity 1 = 4 -- CAS
 natArity 2 = 3 -- DEC
 natArity _ = 1
 
 evalArity :: Nod -> Nat
-evalArity (LAW l)   = lawArgs l
-evalArity (PIN b)   = trueArity (pinItem b)
+evalArity (FUN l)   = lawArgs l
 evalArity (NAT n)   = natArity n
 evalArity (APP f _) = evalArity f - 1
 evalArity (DAT d)   = djArgs d
   where
     djArgs :: Dat -> Nat
+    djArgs (PIN b)          = trueArity (pinItem b)
     djArgs (COW 0)          = error "Should be jet matched as V0"
     djArgs (CAB t) | null t = error "Should be jet matched as T0"
     djArgs (COW n)          = n
@@ -316,16 +315,16 @@ pattern AT n <- PLN _ (NAT n)
   where AT n = nodVal (NAT n)
 
 pattern PN :: Pin -> Pln
-pattern PN n <- PLN _ (PIN n)
-  where PN p = nodVal (PIN p)
+pattern PN n <- PLN _ (DAT (PIN n))
+  where PN p = nodVal (DAT (PIN p))
 
 pattern CL :: Pln -> Pln -> Pln
 pattern CL x y <- PLN _ (APP (nodVal -> x) y)
   where CL x y = nodVal (APP (valNod x) y)
 
 pattern RL :: Law -> Pln
-pattern RL r <- PLN _ (LAW r)
-  where RL r = nodVal (LAW r)
+pattern RL r <- PLN _ (FUN r)
+  where RL r = nodVal (FUN r)
 
 pattern (:&) :: Nod -> Pln -> Nod
 pattern (:&) x y = APP x y
@@ -341,6 +340,10 @@ barBody bytes =
     -- TODO Make this not slow
     bytesNat (bytes <> BS.singleton 1)
 
+pinBody :: Nat -> Pln -> Pln
+pinBody 0 x = nodVal (NAT 2 `APP` x)
+pinBody n x = nodVal (NAT 0 `APP` pinBody (n-1) x `APP` AT n)
+
 -- TODO Carefully review!
 dataWut
     :: ∀a
@@ -349,6 +352,8 @@ dataWut
     -> Dat
     -> a
 dataWut rul cel = \case
+    PIN p -> rul (LN 0) args (pinBody args $ pinItem p)
+               where args = (trueArity $ pinItem p)
     ROW v -> case toList v of
                     []   -> rul (LN 0) 1 (AT 0)
                     x:xs -> apple (DAT $ COW sz) (x :| xs)

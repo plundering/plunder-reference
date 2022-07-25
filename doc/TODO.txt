@@ -1,6 +1,34 @@
 Sire
 ====
 
+-   TODO Move all logic from tests/*.sire into `sire/*.sire` modules.
+    Replace test rountines with code that merely imports.
+
+-   TODO Assertions should print evaluated arguments
+
+    `?? eql (add 1 2) (inc 9)` should print `?? eql 3 10` to show what failed.
+
+    Right now it just prints `1!=0` and `?? eql (add 1 2) (inc 9)`.
+
+-   Carefully think through and document how inlining works.
+
+    An `Inliner` is a function, whose local bindings are resolved (Refr),
+    but will need to be re-keyed during inlining.  Whose global bindings
+    are resolved directly to plunder values.
+
+    And Inliner is a fully parsed and name-resolved expression, all
+    macros have been expanded.
+
+    However, no transformations have been performed.  No lambdas have
+    been lifted.  No LETs have been removed.
+
+    In particular, "inline application" and "static application" nodes
+    are still in place.  Inlining can expose opportunities for further
+    inlining (and static application) there were not possible before
+    inlining.
+
+    Somehow, on import, we want to export a table of "Globals".
+
 -   TODO Compile-Time Application ({!! 0 0 3 0} 3 4)
 
     Go through each sub-expression and turn it into a Pln, then combine
@@ -18,32 +46,6 @@ Sire
     Inlining can remove references to let-bindings, and we don't want
     to generate code for let-bindings that are not used.
 
--   TODO Consider adding a system of imports.
-
-    /+ laws
-    -- Reads in the last value defined in `laws.sire`
-    -- Adds it to a cache (the imports form a DAG).
-    -- The file is loaded starting with an empty environment.
-    -- Definitions made during import do not affect the existing environment.
-
-    /+ *laws
-    -- Same as the above, except that the result is expected to be a
-    -- table, and the results are all copied into the current environment.
-        -- TODO: How can this be made to work with inlining?
-
--   TOOD Add a rune for embedding Loot commands and expressions in Sire.
-
-    Maybe something like:
-
-        ##(x=(f x ? 0:1:2 x))
-
-    This would work for commands and also for raw values (but no mixing
-    of Bod and Exp).
-
--   TODO Inline Lambdas: `(x:x 3) := 3`
-
--   TODO Static Lambdas: `(x![add x x] 3) := 6`
-
 -   TODO All command runes should be two-characters (except =)
 
     Use `/=`, `*=`, etc.  Having overlapping runes between commands and
@@ -55,17 +57,10 @@ Sire
 
 -   TODO Cleanup SireExe.
 
--   TODO Assertions should print evaluated arguments
-
-    `?? eql (add 1 2) (inc 9)` should print `?? eql 3 10` to show what failed.
-
-    Right now it just prints `1!=0` and `?? eql (add 1 2) (inc 9)`.
-
-- TODO Fix weird round-trip bug in tests.
-
-
 Loot
 ====
+
+- TODO Add QuickCheck tests for Loot (Val -> Text -> Val).
 
 - Go futher and have every generated binder name in an output block get
   a unique name:
@@ -82,7 +77,14 @@ Loot
     Large dis-assembled functions are noisy enough without the re-use of
     variables names.
 
-- TODO Add fuzzing to the above.
+    Instead, we should have:
+
+        = (jam a b)
+        @ c
+           ? (jamCore d)
+           @ e (h i j & h (R3:0 i j))-jamCore
+           @ f (k l m n o & k (R5:2 l m n o))-jamCore
+           @ g (p q r s & p (R4:3 q r s))-jamCore
 
 
 Rex
@@ -185,15 +187,55 @@ Rex
     context?
 
     This is actually not hard in the lexer, just accept pages anywhere.
-    They will automaticlaly fail to parse in any nested context.
+    They will automatically fail to parse in any nested context.
 
     Main concern is that it's complicated to print correctly.
 
 
-Plun
-====
+Plunder
+=======
+
+-   Jet mkPin, isPin, etc.
 
 -   Lazy loading?
+
+-   TODO Cabs are generic sets
+-   TODO Tabs are generic maps
+
+-   TODO Add a `Pad` datajet.
+
+    Pads are bit-arrays just like Bars are byte-arrays.
+
+    We should also use a jetted treeConcat operation that takes a
+    rose-tree of Pads and concatenates all.  Build this for Bar as well.
+
+        ??  eql  p#0012300  padFlat-[p#0 [p#0 p#12] p#3 p#00]
+
+    TODO: Actually, I think pads should be handled the same was as
+    w32, etc.  Pad operations take and return atoms.  They cast their
+    inputs to pads.  Every atom is a valid pad except for `0`, if a pad
+    operation is passed zero, it is treated as 1 (the empty pad).
+
+-   TODO Bring back zero-arity rules.
+
+    This makes the spec easier and resolves the need for hacks around
+    x=(@ x y) syntax in Sire and Loot.  Instead, we will just always
+    have bindings create functions.
+
+-   TOOD Pin datajet.
+-   TOOD Eliminate native pins.
+
+-   In the Primop `1`, the nat branch should take the value as an
+    argument.  This makes it practical to use directly, without lambdas
+    around it.
+
+Data Jets for Pins
+------------------
+
+I'm not ready to eliminate `4`, since that is going to be a lot of
+work and it requires figuring out how to bootstrap the (f x)=x syntax.
+However, I can build the pin data jet NOW.  Call it *Sin* and have it
+be a new datatype.
 
 
 Mandelbrot
@@ -202,23 +244,73 @@ Mandelbrot
 - TODO Get Mandelbrot code running correctly.
 
 
+Bootstrapping
+=============
+
+Understand the event log implementation. If it isn't fully working
+yet, see if I can help him with that.
+
+
+Jar
+---
+
+-   TODO Jar does a state-monad traversal through the dependency tree,
+    explicitly keeping track of which hashes are assigned to which pins.
+    No more repeatedly processing the same pins.
+
+Jam Optimiations:
+
+- Rewrite `Jam` to produce a Pad.
+- Rewrite `blake3` to produce a Bar (and to use a bar internally)
+- Implement `cue` and `cap`.
+
+- Heavy testing.
+
+- Jet `jar`, `jam`, `cap`, and `cue`.  Heavily test these operations.
+
+- Don't turn the external refs table into a list.
+
+  To do a lookup, first scan the external referenses table, and then
+  THEN the subtrees list.
+
+
+
 Macro Interface
 ===============
 
-Change Rex representation to be nicer to read and work with by hand:
+-   TODO Use the following Rex representation:
 
-    %fdsa            --  Bare word
-    [0 s t k?]       --  String x, style `s` (Always use above from where pos)
-    [1 x]            --  Directly embedded x
-    [RUNE xs k? s?]  --  Optional style at the end.
-                     --  0=OPEN which is the default.
-
-    (x y z) => ["|" [%x %y %z]]
-    X"fdsa" => [0 0 %X [0 1 %fdsa]]
+    ```
+    0-[t k s]   --  Leaf
+    1-[r t k s] --  Node
+    2-x         --  Embed
+    ```
 
 -   TODO Macros should return "new gensym state" instead of gensym
     increment.  It just simpler, don't need to be so defensive here.
 
+-   `simpleMacro` and `gensymMacro` should be macros.
+
+-   We should have a macro for less-common things that lets us use a
+    macro-function by name.
+
+    ```
+    #  macroName
+    body
+    ```
+
+    This also gives us a way to do data-type macros!
+
+        x#ffxx
+        x#"ffxx"
+        b#turd
+        b#"turd"
+        p#0011
+
+        # x """ ff00ff
+            """ deadbeef
+
+    Eliminating the open questions around x"asdf"
 
 Macro System
 ============
@@ -265,3 +357,66 @@ Macros
           %fallback
 
 -   Support fancy lambda syntax with LambdaCases and pattern matching.
+
+Runner
+======
+
+Port runner over to the new Machine architecture (The runner has no
+persistance).
+
+Possible Naming Scheme for Hardware:
+
+-   `0-65535`: Standard hardware (16 bits)
+-   `65536-4294967296`: NonStandard Hardware (32 bits)
+-   `4294967296-*`: Ephemeral Processes ("file descriptors")
+
+
+Hardware Console
+----------------
+
+The Hardware Console lives at address=0
+
+    data Request a where
+        AcceptTerminalConnection :: Text -> Request Handle
+
+Requests to the hardware console block until a new hardware terminal
+is connected to the machine.  Then, the address of a new Socket is
+returned, and that can be used to communicate between Plunder and the
+hardware terminal.
+
+The socket is essentially a telnet connection.
+
+This provides a way for a Plunder processes to support remote-control
+via a terminal interface.
+
+
+Localhost HTTP Server
+---------------------
+
+The HTTP Server lives at Hardware=1
+
+```
+data Request a where
+    HTTPServe  :: Map Text (Text, ByteString) -> Request a
+    HTTPListen :: Text -> Request Handle
+```
+
+When the server gets a HTTPServe request, it makes the given data structure
+available over HTTP.  The request never returns.  If the request is
+canceled, the data is no longer served.  If multiple HTTPServe requests
+happen simultaneously, both of them are accepted, but hardware will
+arbitrarily choose which directory to serve.
+
+When the server gets a HTTPListen request, it begins to accept websocket
+requests at "/${key}".  When a websocket request comes in, a new hardware
+address is created for that communication.  The new hardware is a simple
+socket device with Read/Write requests that work with Bars.
+
+This device is intended to allow Plunder code to build browser interfaces.
+
+
+Persist
+-------
+
+Understand the event log implementation. If it isn't fully working
+yet, see if I can help him with that.

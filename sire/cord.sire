@@ -1,0 +1,30 @@
+/+  nat   (lte gte aeq)
+/+  nat   (roundUp bitWidth blockWeld rsh dis)
+/+  nat   (inc div)
+/+  bool  (if and or)
+/+  row   (mkRow foldl foldr)
+
+(rap w v)=(foldl (blockWeld w) 0 v)
+
+(isDigit c)=(and (gte c '0') (lte c '9'))
+(isUpper c)=(and (gte c 'A') (lte c 'Z'))
+(isLower c)=(and (gte c 'a') (lte c 'z'))
+(isAlpha c)=(or isUpper-c isLower-c)
+
+(implode x)=(rap 8 x)
+
+= (explode s)
+@ wid | div (roundUp bitWidth-s 8) 8
+. 0 s (mkRow wid)
+? (loop i s acc)
+| if (aeq i wid) acc
+| loop inc-i (rsh s 8) | acc | dis 0xff s
+
+(cordWeld x y)=(blockWeld 8 x y)
+
+(cordConcat vs)=(foldr cordWeld [] vs)
+
+
+^-^  isDigit isUpper isLower isAlpha
+^-^  explode implode
+^-^  cordWeld cordConcat

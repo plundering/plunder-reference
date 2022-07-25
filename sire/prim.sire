@@ -1,0 +1,48 @@
+mkFun=0
+valCase=1
+natCase=2
+inc=3
+
+= (isFun x) | 1 (_ _ _)&1 (_ _)&0 _&0 x
+= (isApp x) | 1 (_ _ _)&0 (_ _)&1 _&0 x
+= (isNat x) | 1 (_ _ _)&0 (_ _)&0 _&1 x
+
+= (funName x) | 1 (i _ _)&i (_ _)&0 _&0 x
+= (funArgs x) | 1 (_ i _)&i (_ _)&0 _&0 x
+= (funBody x) | 1 (_ _ i)&i (_ _)&0 _&0 x
+= (appHead x) | 1 (_ _ _)&0 (i _)&i _&0 x
+= (appTail x) | 1 (_ _ _)&0 (_ i)&i _&0 x
+
+= (force x)     | 0 0 0 2-x
+= (seq x y)     | 2 y _&y x
+= (deepseq x y) | seq force-x y
+= (trk x y)     | deepseq x y
+= (trkVal k v)  | trk [k v] v
+= (die x)       | die x
+
+= (car x) | 1 (n a _ & 0 n a) (h _ & h) _&0 x
+= (cdr x) | 1 (_ _ b & b)     (_ t & t) _&0 x
+
+= (caar x)  | car | car | x
+= (cadr x)  | car | cdr | x
+= (cdar x)  | cdr | car | x
+= (cddr x)  | cdr | cdr | x
+= (caaar x) | car | car | car x
+= (caadr x) | car | car | cdr x
+= (cadar x) | car | cdr | car x
+= (caddr x) | car | cdr | cdr x
+= (cdaar x) | cdr | car | car x
+= (cdadr x) | cdr | car | cdr x
+= (cddar x) | cdr | cdr | car x
+= (cdddr x) | cdr | cdr | cdr x
+
+(I x)=x
+
+?? mkFun 0 0 1
+?? funName (mkFun 1 8 0)
+?? funArgs (mkFun 0 1 0)
+?? funBody (mkFun 0 8 1)
+?? appHead (1 0)
+?? appTail (0 1)
+
+?? cdadr (cdadr car)

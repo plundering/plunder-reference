@@ -1,0 +1,65 @@
+/+  prim   (funBody mkFun)
+/+  nat    (inc)
+/+  apply  (len head idx)
+/+  bool   (if not)
+/+  eql    (eql)
+/+  maybe  (maybeCase)
+/+  row    (find has map rowApply weld)
+/+  list   (sortOn listFromRow listToRow listZip)
+
+= (tabLen tab) | len (funBody head-tab)
+
+= (tabIdx key tab)
+@ keys (funBody head-tab)
+! maybeCase (find key keys) 0
+| (i & idx i tab)
+
+= (look tab key)  | tabIdx key tab
+= (tabKeys tab)   | funBody head-tab
+= (tabHas k t)    | has k tabKeys-t
+= (tabGet t k)    | tabIdx k t
+= (tabValues tab) | map tabGet-tab tabKeys-tab
+
+= (tabSwitch key fal tab)
+| if not(tabHas key tab) fal
+| tabIdx key tab
+
+= (tabMatch val fal tab)
+| tabSwitch idx-0-val fal tab
+
+?? eql 8 | tabIdx 0 %[0=8]
+?? eql 9 | tabIdx %aa %(bb=8, aa=9)
+?? tabHas %aa %(bb=8, aa=9)
+?? not | tabHas %cc %(bb=8, aa=9)
+
+;; eql 8 | tabIdx 0 %(0=8)
+;; TODO This should work too.
+
+= (tabFromRow rawPairs)
+@ pairs | sortOn idx-0 rawPairs
+@ wid   | len pairs
+@ keys  | map idx-0 pairs
+@ vals  | map idx-1 pairs
+@ cab   | mkFun 0 inc-wid keys
+| rowApply cab vals
+
+= (tabToRow tab)
+@ ks | listFromRow tabKeys-tab
+@ vs | listFromRow tab
+; trk %[=ks =vs]
+; trk %[zipped=(listZip ks vs)]
+| listToRow | listZip ks vs
+
+(tabToList tab)=(listFromRow tabToRow-tab)
+
+; TODO Doesn't overwrite correctly
+= (tabPut tab key val)
+; trk ,, tab
+;     ,, tabToRow-tab
+| tabFromRow
+; trkVal %pairs
+| weld tabToRow-tab
+| [[key val]]
+
+^-^ tabLen tabIdx look tabKeys tabHas tabGet tabValues tabSwitch tabMatch
+^-^ tabFromRow tabToRow tabToList tabPut

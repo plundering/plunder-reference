@@ -86,8 +86,8 @@ main = do
             -- dedicated pill files instead of reading from the repl cache
             -- instead.
             val <- case pVal of
-              PLN _ (P.PIN P.P{pinItem}) -> pure pinItem
-              _                          -> error "Impossible"
+              PLN _ (P.DAT (P.PIN P.P{pinItem})) -> pure pinItem
+              _                                  -> error "Impossible"
 
             handle <- bootNewMachine lmdbt machineName val
             asyncFinishOrCtrlC handle ctrlCPressed

@@ -1,0 +1,19 @@
+; TODO Rename this module to "bit"
+
+= F 0
+= T 1
+
+= Y 1
+= N 0
+
+= (toBool x)    | 2 F _&T x
+= (not x)       | 2 T _&F x
+= (if x t e)    | 2 e _&t x
+= (ifNot x t e) | 2 t _&e x
+
+= (and x y)  | if x (toBool y) F
+= (or x y)   | if x T (toBool y)
+= (xor x y)  | if x (not y) (toBool y)
+= (nand x y) | not (and x y)
+= (nor x y)  | not (or x y)
+= (xnor x y) | not (xor x y)

@@ -1,0 +1,124 @@
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Basic Operations on Natural Numbers ;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+/+ bool (if ifNot T F not and or xor)
+/+ prim (isNat cdr die)
+
+= (toNat x)    | 2 0 3 x
+= inc          | 3
+= (dec x)      | 2 0 y&y x
+= (exec f z x) | 2 z (exec f f-z) x
+= (aeqZero x)  | 2 T _&F x
+
+;;;
+;;; TODO `until` factors out a repetative pattern, but does not aid
+;;; clarity.  Kill it.
+;;;
+;;; until :: (a -> Bool -> (b -> a -> b > b -> a -> b) -> (b -> a -> b))
+;;;
+= (until f step z n)
+@ recur (until f step)
+| if (f n) z
+| step recur z n
+
+= (add x y) | exec inc toNat-x y
+= (mul x y) | exec add-x 0 y
+= (sub x y) | exec dec x y
+= (lte x y) | aeqZero sub-x-y
+= (lth x y) | lte inc-x y
+= (gte x y) | lte y x
+= (gth x y) | lth y x
+= (aeq x y) | and lte-y-x lte-x-y
+= (min x y) | if lte-x-y x y
+= (max x y) | if gth-x-y x y
+
+(square x)=(mul x x)
+
+?? inc ( add 0   0   )
+?? inc ( add 0   0-0 )
+?? inc ( add 0-0 0   )
+?? inc ( add 0-0 0-0 )
+?? add 0 1
+?? add 1 0
+
+?? aeq 5 5
+?? aeq 6 mul-2-3
+?? aeq 2 sub-4-2
+?? gth 4 3
+?? gte 4 3
+?? gte 4 4
+?? aeq 0 sub-3-4
+?? aeq 0 sub-3-3
+?? aeq 1 sub-3-2
+?? aeq 2 sub-3-1
+?? aeq 3 sub-3-0
+?? aeq 0 1-2
+?? aeq 1-2 0
+
+= (div dividend divisor)
+| ifNot divisor die-"divide by zero"
+@ step
+   & (loop z n)
+   | loop inc-z
+   | sub n divisor
+| until gth-divisor step 0 dividend
+
+= (mod x y)      | sub x | mul y | div x y
+= (bex n)        | exec mul-2 1 n
+= (lsh x y)      | mul bex-y x
+= (rsh v n)      | div v bex-n
+= (takeBits n v) | mod v bex-n
+
+= (even n) | not mod-n-2
+= (odd n)  | mod n 2
+
+= (bitWidth n)
+@ step (recur z n & recur inc-z rsh-n-1)
+| until aeqZero step 0 n
+
+= (takeByte n) | takeBits 8 n
+= (dropByte n) | rsh n 8
+
+= (perbit x y fun)
+. x y 0 0
+? (loop a b off acc)
+| if (and aeqZero-a aeqZero-b) acc
+@ bit | fun mod-a-2 mod-b-2
+| loop div-a-2 div-b-2 inc-off
+| add acc
+| lsh bit off
+
+= (con x y) | perbit x y or
+= (dis x y) | perbit x y and
+= (mix x y) | perbit x y xor
+
+= (roundUp num x)
+| ifNot x           num
+| ifNot (mod num x) num
+| sub (add num x) (mod num x)
+
+= (bitWeld x y)
+| add x | lsh y bitWidth-x
+
+= (blockWeld w x y)
+| add x | lsh y | roundUp bitWidth-x w
+
+byteWeld=(blockWeld 8)
+
+?? aeq 1 (mix 0 1)
+?? aeq 1 (mix 1 0)
+?? aeq 3 (mix 2 1)
+?? aeq 1 (mix 2 3)
+?? aeq 0 (roundUp 0 4)
+?? aeq 4 (roundUp 3 4)
+?? aeq 8 (roundUp 5 4)
+
+^-^ inc dec add sub mod mul div
+^-^ toNat aeqZero
+^-^ aeq lth gth lte gte min max
+^-^ even odd
+^-^ roundUp blockWeld bitWidth takeByte dropByte
+^-^ lsh rsh con mix dis bex
+^-^ takeBits
+^-^ toNat

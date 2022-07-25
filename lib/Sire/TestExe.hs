@@ -23,9 +23,6 @@ import GHC.IO.Handle (hFlushAll)
 vMac :: IORef (Map Text Pln)
 vMac = unsafePerformIO (newIORef mempty)
 
-vLin :: IORef (Map Symb (Fun Pln Sire.Refr Sire.Global))
-vLin = unsafePerformIO (newIORef mempty)
-
 devNull :: Handle
 devNull = unsafePerformIO (openFile "/dev/null" WriteMode)
 
@@ -40,13 +37,13 @@ main = do
     -- TODO Need to reset this after each test.
     vEnv <- liftIO $ newIORef mempty
     langTest ".sire" (let ?rexColors = NoColors
-                      in goldenLoot vEnv)
+                      in goldenSire vEnv)
 
 cab :: Symb
 cab = utf8Nat "_"
 
-goldenLoot :: RexColor => IORef (Map Symb Pln) -> GoldPaths -> TestTree
-goldenLoot vEnv pax = do
+goldenSire :: RexColor => IORef (Map Symb Sire.Global) -> GoldPaths -> TestTree
+goldenSire vEnv pax = do
     runTest pax doBlk end
   where
     GOLD_PATHS{gpSource,gpOutput} = pax
@@ -54,12 +51,12 @@ goldenLoot vEnv pax = do
     doBlk :: FilePath -> Handle -> Bool -> Block -> IO ()
     doBlk _fil _h _firstLn blk = do
         let actor _ = pure (0, 0)
-        Sire.runBlockPlun devNull False actor vEnv vMac vLin blk
+        Sire.runBlockPlun devNull False actor vEnv vMac blk
 
     end :: Handle -> IO ()
     end h = do
            env <- readIORef vEnv
-           pln <- pure $  fromMaybe (AT 0) $ lookup cab env
+           pln <- pure $ fromMaybe (AT 0) (Sire.gPlun <$> lookup cab env)
            has <- pinHash <$> mkPin' pln
 
            Loot.printValue h False (Just $ utf8Nat "_") pln

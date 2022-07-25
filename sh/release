@@ -19,5 +19,5 @@ ls
 rm -Ir *
 popd
 
-tar c $(git ls-files | grep -v attic) |
+tar c $(git ls-files) |
   ( cd $target; tar x )

@@ -62,5 +62,15 @@ validateLoot lootFile tempFile = do
     hFlushAll h >> hClose h
     srcText <- readFileUtf8 lootFile
     tmpText <- readFileUtf8 tempFile
-    unless (srcText == tmpText) (error "They differ!")
-    when False $ removeFile tempFile
+    unless (srcText == tmpText) do
+        putStrLn ("Re-Processing output produces different result")
+        putStrLn "To show the difference, run:\n"
+        putStrLn $ concat
+            [ "    diff --color '"
+            , pack lootFile
+            , "' '"
+            , pack tempFile
+            , "'"
+            ]
+        error "Roundtrip Failed"
+    removeFile tempFile

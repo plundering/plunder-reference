@@ -18,6 +18,8 @@ module Loot.Syntax
     , valRex
     , isNameChar
     , readTag
+    , readIdnt
+    , readIdnTxt
     , readSymb
     , readBymb
 --  , idnTag
@@ -34,6 +36,7 @@ module Loot.Syntax
     , readNat
     , readCord
     , readCow
+    , rForm1
     , rForm1c
     , rFormN1c
     , rForm3c
@@ -42,6 +45,9 @@ module Loot.Syntax
     , rFormNc
     , rForm1Nc
     , bodBox
+    , barBox
+    , barRex
+    , readOpenCab
     )
 where
 
@@ -194,9 +200,6 @@ rowBox row =
     siz = 1 + length row + sum (boxWidth <$> kid)
     kid = valBox <$> toList row
 
-turn :: Functor f => f a -> (a -> b) -> f b
-turn = (<&>)
-
 tabBox :: Map Nat XVal -> Box
 tabBox tab =
     BOX siz wid tal
@@ -244,6 +247,9 @@ cabBox k =
     widKeys = N NEST_PREFIX "," (boxWide <$> keysBox) NONE
     width = 2 + sum (boxWidth <$> keysBox)
 
+barRex :: ByteString -> Rex
+barRex = boxWide . barBox
+
 barBox :: ByteString -> Box
 barBox bs =
     BOX wid rex (absurd<$>rex)
@@ -254,12 +260,21 @@ barBox bs =
 
     tx = toStrict $ decodeUtf8 $ toLazyByteString $ byteStringHex bs
 
-    (wid, rex) = case (decodeUtf8' bs) of
-        Right t | okCord t -> ( 3 + length t
-                              , T BARE_WORD "B" $ Just $ T THIN_CORD t  Nothing
+    rex = N SHUT_INFIX "#" [ T BARE_WORD pre NONE
+                           , post
+                           ] NONE
+
+    (wid, (pre, post)) = case (decodeUtf8' bs) of
+        Right t | okName t -> ( 2 + length t
+                              , ("b", T BARE_WORD t  NONE)
                               )
-        _                  -> ( 3 + length tx
-                              , T BARE_WORD "X" $ Just $ T THIN_CORD tx Nothing
+
+        Right t | okCord t -> ( 4 + length t
+                              , ("b", T THIN_CORD t NONE)
+                              )
+
+        _                  -> ( 2 + length tx
+                              , ("x", T BARE_WORD tx NONE)
                               )
 
 boxRex :: Box -> Rex
@@ -301,6 +316,9 @@ okTagSymb sym =
     okTagIdnChar '_' = True
     okTagIdnChar c   = C.isAlpha c
 -}
+
+okName :: Text -> Bool
+okName txt = not (null txt) && all isNameChar txt
 
 okIdn :: Text -> Bool
 okIdn txt =
@@ -448,10 +466,10 @@ parens rexz = N NEST_PREFIX "|" rexz Nothing
 pattern NONE :: Maybe a
 pattern NONE = Nothing
 
-zapSeq :: [GRex v] -> GRex v
-zapSeq []     = error "impossible"
-zapSeq [x]    = N OPEN "!" [x] Nothing
-zapSeq (x:xs) = N OPEN "!" [x] (Just $ zapSeq xs)
+runeSeq :: Text -> [GRex v] -> GRex v
+runeSeq _   []     = error "impossible"
+runeSeq ryn [x]    = N OPEN ryn [x] Nothing
+runeSeq ryn (x:xs) = N OPEN ryn [x] (Just $ runeSeq ryn xs)
 
 openSeq :: Text -> [[GRex Box]] -> GRex Box
 openSeq roon = go
@@ -518,8 +536,8 @@ bodBox = \case
     XRAW x           -> valBox x
     XCNS (XVAPP f x) -> boxShutInfix "!" (valBox <$> unCell [x] f)
     XBAD (XVAPP f x) -> boxShutInfix ":" (valBox <$> unCell [x] f)
-    XBAD x           -> boxPrefix ":" (valBox x)
     XCNS x           -> boxPrefix "!" (valBox x)
+    XBAD x           -> boxPrefix ":" (valBox x)
     XAPP f x         -> bodApply (unXApp [x] f)
     XLET n v k       -> letBox n v k
 
@@ -609,7 +627,7 @@ boxShutInfix roon exprs =
             [x] -> 3 + length roon + boxWidth x -- fallback to nest prefix
             xs  -> length roon * (length xs - 1) + sum (boxWidth<$>xs)
     wid = N SHUT_INFIX roon (boxWide <$> exprs) NONE
-    tal = zapSeq (box <$> exprs)
+    tal = runeSeq roon (box <$> exprs)
 
 -- TODO Hack for printing in ReplExe -------------------------------------------
 
@@ -746,7 +764,7 @@ readOpenTabish = do
     rex <- readRex
     case rex of
         N _ "%%" (N _ "=" [_] _ : _) _ -> readOpenTab
-        _                              -> readOpenCab
+        _                              -> XVCAB <$> readOpenCab
 
 readOpenTab :: Red v XVal
 readOpenTab = do
@@ -760,14 +778,14 @@ readOpenTab = do
             (k, x:xs) -> (k, foldl' XVAPP x xs)
     pure (XVTAB tab)
 
-readOpenCab :: Red v XVal
+readOpenCab :: Red v (Set Nat)
 readOpenCab = do
     keyList <- slip1 "%%" readKey
     let keySet = setFromList keyList
     when (length keyList /= length keySet) do
         -- TODO Find and show the offending key.
         throwError "Duplicated Key"
-    pure (XVCAB keySet)
+    pure keySet
 
 readWideTabish :: Red v XVal
 readWideTabish = either XVCAB XVTAB <$> do
@@ -827,6 +845,9 @@ rForm2c r x y k = rune r >> form2c x y >>= \(a,b) -> pure (k a b)
 
 rForm1c :: Text -> Red v a -> (a -> b) -> Red v b
 rForm1c r x k = rune r >> form1c x >>= \a -> pure (k a)
+
+rForm1 :: Text -> Red v a -> (a -> b) -> Red v b
+rForm1 r x k = rune r >> form1 x >>= \a -> pure (k a)
 
 rFormNc :: Text -> Red v a -> ([a] -> b) -> Red v b
 rFormNc r x k = rune r >> formNc x >>= \a -> pure (k a)
@@ -931,8 +952,11 @@ simpleTag :: Symb -> XTag
 simpleTag t = XTAG t Nothing
 
 readIdnt :: Red v Symb
-readIdnt = matchLeaf "symbol" \case
-    (BARE_WORD,n) | okIdn n -> Just (utf8Nat n)
+readIdnt = utf8Nat <$> readIdnTxt
+
+readIdnTxt :: Red v Text
+readIdnTxt = matchLeaf "symbol" \case
+    (BARE_WORD,n) | okIdn n -> Just n
     _                       -> Nothing
 
 readSymb :: Red v Symb
@@ -977,15 +1001,17 @@ readNumb =
         '_':_ -> Nothing
         _     -> readMay (filter (/= '_') n)
 
+readAnyText :: Red v Text
+readAnyText = (readName <|> readCord <|> readLine)
+
+-- TODO Use x#_ and b#_ syntax
 readBar :: Red v ByteString
-readBar =
-    matchNameText "bar" \n k ->
-        case n of
-            "B" -> Just (encodeUtf8 k)
-            "X" -> case B16.decode (encodeUtf8 k) of
-                       Left _  -> Nothing
-                       Right x -> Just x
-                       -- Should probably just return the bytestring
-                       -- AND the type from this, and have the reader fail
-                       -- with an error if its not text.
-            _    -> Nothing
+readBar = do
+    rune "#"
+    (n, k) <- form2 readName readAnyText
+    case n of
+        "b" -> pure (encodeUtf8 k)
+        "x" -> case B16.decode (encodeUtf8 k) of
+                   Left er -> throwError ("Invalid hex literal: " <> pack er)
+                   Right x -> pure x
+        _   -> throwError "Invalid # literal"

@@ -2,6 +2,7 @@ module PlunderPrelude
     ( module X
     , writeTQueue'
     , writeTBQueue'
+    , turn
     )
 where
 
@@ -22,3 +23,6 @@ writeTQueue' a b = writeTQueue a $! b
 
 writeTBQueue' :: TBQueue a -> a -> STM ()
 writeTBQueue' a b = writeTBQueue a $! b
+
+turn :: Functor f => f a -> (a -> b) -> f b
+turn = (<&>)

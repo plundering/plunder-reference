@@ -11,12 +11,12 @@ where
 
 import PlunderPrelude hiding (hash, (%))
 
+import Plun.Print (encodeBtc)
 import Data.Hashable             (hash)
 import Foreign.ForeignPtr        (withForeignPtr)
 import Data.Bits                 (xor)
 import Foreign.Ptr               (castPtr,)
 import Foreign.Storable          (peek)
-
 import Data.ByteString.Internal (ByteString(PS))
 
 
@@ -38,8 +38,11 @@ data NounView a
 
 -- TODO Better show instance
 newtype Hash256 = Hash256 ByteString
-  deriving newtype (Eq, Ord, Show)
+  deriving newtype (Eq, Ord, NFData)
   deriving (Generic)
+
+instance Show Hash256 where
+  show (Hash256 bs) = show (take 8 $ encodeBtc bs)
 
 --------------------------------------------------------------------------------
 

@@ -2,16 +2,15 @@
 {-# OPTIONS_GHC -Werror #-}
 
 module Jar.Noun
-    ( jarNoun
-    , Noun(..)
+    ( Noun(..)
     , (%)
-    , showJarBits
-    , capJarTest
-    ) where
+    , nounable
+    )
+where
 
 import PlunderPrelude hiding (hash, (%))
 
-import Jar
+import Jar.Nounable
 
 
 -- Example Type and Instance for Testing ---------------------------------------
@@ -58,23 +57,11 @@ instance Num Noun where
 
 instance Hashable Noun where
 
-jarNoun :: Noun -> IO (Vector Hash256, ByteString)
-jarNoun = jar
+--------------------------------------------------------------------------------
 
-natBits :: Nat -> [Bool]
-natBits 0 = []
-natBits n = (1 == (n `mod` 2)) : natBits (n `div` 2)
-
-showJarBits :: (Hashable a, Eq a, Show a, Nounable a, MonadIO m) => a -> m ()
-showJarBits n = do
-    (_, bs) <- jar n
-    -- print bs
-    -- print (unpack bs :: [Word8])
-    let nat = bytesNat bs
-    for_ (natBits nat) \x -> putChar (if x then '1' else '0')
-    putStrLn ""
-
-capJarTest :: (Show a, Nounable a) => a -> Either DecodeErr a
-capJarTest v =
-    let (refs, bits) = unsafePerformIO (jar v)
-    in capBS (mkRefr <$> refs) bits
+nounable :: Nounable a => a -> Noun
+nounable v =
+    case nounView v of
+        NATISH n   -> L n
+        REFISH _ r -> R r
+        APPISH f x -> N (nounable f) (nounable x)

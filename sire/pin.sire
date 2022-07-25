@@ -1,0 +1,55 @@
+/+  prim   (isNat isFun funArgs funBody car cdr)
+/+  prim   (cdar caar)
+/+  nat    (dec aeq)
+/+  bool   (if ifNot and)
+/+  apply  (arity)
+/+  eql
+
+= (mkPin item)
+@ args arity-item
+| 0 0 args
+. args
+? (go n)
+| ifNot n (2 item)
+| 0 (go dec-n) n
+
+= (pinItem item)
+. funBody-item
+? (go x)
+| if isNat-x 0
+@ hed car-x
+| if isNat-hed cdr-x
+| go cdr-hed
+
+= (isPin p)
+| and isFun-p
+. funArgs-p funBody-p
+? (go n b)
+@ hed car-b
+@ tel cdr-b
+| ifNot n (eql 2 hed)
+| and (eql n tel)
+| and (eql 0 car-hed)
+| go (dec n) cdr-hed
+
+= (checkPin item)
+@ pin (mkPin item)
+| and isPin-pin
+| eql item pinItem-pin
+
+?? checkPin 0
+?? checkPin 1
+?? checkPin 2
+?? checkPin 3
+?? checkPin 4
+?? checkPin 5
+?? checkPin (0 0)
+?? checkPin (0 0 0)
+?? checkPin (1 1 1 1)
+?? checkPin (x & x)
+?? checkPin (x y & x)
+?? checkPin R2
+?? checkPin [3 4 5]
+?? checkPin checkPin
+
+^-^ mkPin isPin pinItem

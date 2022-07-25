@@ -1,41 +1,33 @@
-Every term is either a nat x:@, an app x:(f g), a pin x:{b}, or a law
-x:{n a b}.  Given x, find a derivation [x -> .. -> z] such that NF(z).
+Every tree is either a fun x:{n a b}, an app x:(f g), or a nat x:@.
+
+Evaluate by reducing repeatedly with (->).  Reduce outer trees first.
 
 (f g x) := ((f g) x)
 
-SUB(l,n)  is the nth element of the array l or just n (if out of bounds).
-LEN(l)    is the length of the array l.
-PUSH(l,x) is the array l with x appended.
+NTH(v,n,fb) is the nth element of the array v (or fb if out of bounds)
+LEN(v)      is the length of the array v.
+PUSH(v,x)   is the array v with x appended.
 
 NAT(x) = if x:@ then x else 0
 
 RUN(r,(0 f x)) = (RUN(r,f) RUN(r,x))
 RUN(r,(1 v k)) = RUN(s,k) where s = PUSH(r,RUN(s,v))
 RUN(r,(2 v))   = v
-RUN(r,v:@)     = SUB(r,v)
+RUN(r,v:@)     = NTH(v,n,v)
 RUN(r,x)       = x
 
-v=0                            =>  ARITY(v)=3
-v=1                            =>  ARITY(v)=5
-v=2                            =>  ARITY(v)=3
-v>2                            =>  ARITY(v)=1
-v:(f g)                        =>  ARITY(v)=(ARITY(f)-1)
-v:{n a b}                      =>  ARITY(v)=n
-v:{x}                          =>  ARITY(v)=ARITY(x)
-ARITY(v)>0                     =>  WHNF(v)
-v:@                            =>  NF(v)
-v:(f g) WHNF(v) NF(f) NF(g)    =>  NF(v)
-v:{i}                          =>  NF(v)
-v:{n a b}                      =>  NF(v)
-WHNF(n) WHNF(t) NF(b) NAT(n)=0 =>  (0 n a b)     -> 0
-WHNF(n) WHNF(t) NF(b)          =>  (0 n a b)     -> {NAT(n) NAT(a) b}
-v:{i}                          =>  (1 p l a n v) -> (p i)
-v:{n a b}                      =>  (1 p l a n v) -> (l n a b)
-v:(f x) WHNF(v)                =>  (1 p l a n v) -> (a f x)
-v:@                            =>  (1 p l a n v) -> n
-WHNF(v) w=NAT(v)               =>  (2 z p v)     -> if w=0 then z else (p (w-1))
-WHNF(x)                        =>  (3 x)         -> NAT(x)+1
-NF(x)                          =>  (4 x)         -> {x}
-f:@ f>4                        =>  (f x)         -> 0
-n=LEN([..])                    =>  ({n a b} ..)  -> RUN([{n a b} ..],b)
-@x=LEN([..])                   =>  ({x} ..)      -> (x ...)
+v:@                          =>  ARITY(v)=NTH([3 4 3], v, 1)
+v:(f _)                      =>  ARITY(v)=(ARITY(f)-1)
+v:{n _ _}                    =>  ARITY(v)=n
+ARITY(v)>0                   =>  WHNF(v)
+v:@                          =>  NF(v)
+v:(f g) WHNF(v) NF(f) NF(g)  =>  NF(v)
+v:{n a b}                    =>  NF(v)
+WHNF(n) WHNF(t) NF(b)        =>  (0 n a b)    -> {NAT(n) NAT(a) b}
+v:{n a b}                    =>  (1 f a n v)  -> (f n a b)
+v:(f x) WHNF(v)              =>  (1 f a n v)  -> (a f x)
+v:@                          =>  (1 f a n v)  -> (n v)
+WHNF(v) w=NAT(v)             =>  (2 z p v)    -> if w=0 then z else (p (w-1))
+WHNF(x)                      =>  (3 x)        -> NAT(x)+1
+f:@ f>3                      =>  (f x)        -> 0
+n=LEN([..])                  =>  ({n a b} ..) -> RUN([{n a b} ..],b)
