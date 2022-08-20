@@ -6,7 +6,7 @@
 ;; data Maybe a = NONE | SOME a ;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-/+ combo  (I)
+/+ prim   (I)
 /+ bool   (if)
 /+ prim   (cdr die isNat)
 /+ nat    (inc dec)
@@ -18,7 +18,7 @@
 | if isNat-opt non
 ! som cdr-opt
 
-(fromSome n x)={! maybeCase x n I}
+(fromSome n x)=(! maybeCase x n I)
 
 ?? maybeCase SOME-0 0 inc
 ?? maybeCase SOME-1 0 I

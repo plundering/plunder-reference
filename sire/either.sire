@@ -1,10 +1,8 @@
 ;;;
-;;; data Either a b
-;;;     = LEFT a
-;;;     | RIGHT a
+;;; data Either a b = LEFT a | RIGHT b
 ;;;
 
-/+  combo  (I K)
+/+  prim   (I K)
 /+  prim   (car cdr die)
 /+  nat    (inc dec)
 /+  bool   (if)
@@ -12,56 +10,44 @@
 = (LEFT x)  (0 x)
 = (RIGHT x) (1 x)
 
-= (eitherCase x l r)
-| if (car x) {! r cdr-x} {! l cdr-x}
+(eitherCase x l r)=(if (car x) (! r cdr-x) (! l cdr-x))
 
-= (eitherCaseLeft x r l)
-| if (car x) {! r cdr-x} {! l cdr-x}
+(fromRight l x)=(! eitherCase x l I)
 
-= (eitherOpen x r)
-! eitherCase x _&x r
+(eitherCaseLeft x r l)=(if (car x) (! r cdr-x) (! l cdr-x))
 
-= (eitherOpenLeft x l)
-! eitherCase x l _&x
+(eitherOpen x r)=(! eitherCase x _&x r)
 
-(fromRight l x)={! eitherCase x l I}
+(eitherOpenLeft x l)=(! eitherCase x l _&x)
 
-(fromLeft r x)={! eitherCase x I r}
+(fromLeft r x)=(! eitherCase x I r)
 
-?? ! eitherCase RIGHT-0 K-0 inc
-?? ! eitherCase RIGHT-1 K-0 I
-?? ! eitherCase RIGHT-2 K-0 dec
-?? ! eitherCase LEFT-9  K-1 die
-?? ! eitherCase LEFT-1  I   die
-?? ! eitherCase LEFT-0  inc die
+(eitherGetRight x k)=(! eitherCase x _&x k)
 
-= (LEFT x)  (0 x)
-= (RIGHT x) (1 x)
+(eitherGetLeft x k)=(! eitherCase x k _&x)
 
-= (eitherCase x l r)
-| if (car x) {! r cdr-x} {! l cdr-x}
+(eitherMap f val)=(! eitherCase val 0 (x & 1 f-x))
 
-= (eitherCaseLeft x r l)
-| if (car x) {! r cdr-x} {! l cdr-x}
 
-= (eitherOpen x r)
-! eitherCase x _&x r
+;;;;;;;;;;;
+;; Tests ;;
+;;;;;;;;;;;
 
-= (eitherOpenLeft x l)
-! eitherCase x l _&x
+?? eitherCase RIGHT-0 K-0 inc
+?? eitherCase RIGHT-1 K-0 I
+?? eitherCase RIGHT-2 K-0 dec
+?? eitherCase LEFT-9  K-1 die
+?? eitherCase LEFT-1  I   die
+?? eitherCase LEFT-0  inc die
 
-(fromRight l x)={! eitherCase x l I}
 
-(fromLeft r x)={! eitherCase x I r}
-
-?? ! eitherCase RIGHT-0 K-0 inc
-?? ! eitherCase RIGHT-1 K-0 I
-?? ! eitherCase RIGHT-2 K-0 dec
-?? ! eitherCase LEFT-9  K-1 die
-?? ! eitherCase LEFT-1  I   die
-?? ! eitherCase LEFT-0  inc die
+;;;;;;;;;;;;;
+;; Exports ;;
+;;;;;;;;;;;;;
 
 ^-^ LEFT RIGHT
 ^-^ fromLeft fromRight
 ^-^ eitherCase eitherOpen
 ^-^ eitherOpenLeft eitherCaseLeft
+^-^ eitherGetRight eitherGetLeft
+^-^ eitherMap

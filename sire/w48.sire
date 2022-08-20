@@ -57,7 +57,7 @@ isZero48=not48
 
 = (iDiv48 x y)
 @ res | div48 (iAbs48 x) (iAbs48 y)
-| if (xor (iIsNeg48 x) (iIsNeg48 x))
+| if (xor (iIsNeg48 x) (iIsNeg48 y))
     (iNeg48 res)
 | res
 

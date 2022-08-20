@@ -5,39 +5,69 @@ The Rex Grammar
 namechar = [a-zA-Z_]
 runechar = [$!#%&*+,-./:<=>?@\\^`|~]
 
-/"""(.*)/     -> PAGE
-/'''(.*)/     -> PAGE
-/;(.*)/       -> NOTE
-/(namechar+)/ -> NAME
-/(runechar+)/ -> RUNE
-/( +)/        -> WHYT
-/'([^']*)'/   -> TEXT
-/"([^"]*)"/   -> TEXT
+/"""(.*)/     -> P # Page
+/'''(.*)/     -> P # Page
+/;(.*)/       -> C # Comment
+/(namechar+)/ -> N # Name
+/(runechar+)/ -> R # Rune
+/( +)/        -> S # Whitespace
+/'([^']*)'/   -> T # Text
+/"([^"]*)"/   -> T # Text
 
-leaf = PAGE | TEXT | NAME
+leaf = P | T | N
 shut = (nest | leaf)+
-shin = shut (RUNE shut)*
-form = RUNE shin | shin
-frag = RUNE shin | RUNE | shin
+shin = shut (R shut)*
+form = R shin | shin
+frag = R shin | R | shin
 
-faro = ')'
-     | RUNE WHYT form faro
-     | WHYT ')'
-     | WHYT RUNE WHYT form faro
-     | WHYT form faro
+# In infix mode, always occurs after `form`.
+plix = ')'
+     | R S form plix
+     | S ')'
+     | S R S form plix
+     | S form plix
 
-para = '(' WHYT? form faro
+# In prefix mode, always occurs after `R` or `form`.
+pree = ')'
+     | S ')'
+     | S R pree
+     | S form pree
 
-brok = ']' | WHYT ']' | WHYT frag brok
-brak = '[' WHYT? (( ']' || frag brok ))
+# Body of parenthesis, decides if infix or prefix
+prest = ')'
+      | form plix
+      | R pree
 
-carl = form (( '}' || WHYT (( '}' || carl )) ))
-curl = '{' WHYT? (( '}' || carl ))
+# Body of [bracket expression]
+broke = ']'
+      | S ']'
+      | S frag broke
 
-nest = para | brak | curl
+# Body of {curly expression}
+carl = '}'
+     | S '}'
+     | S frag carl
 
-whyt = NOTE | (WHYT NOTE?)
+# [Any] (nested) {expression}
+nest = '(' prest
+     | '(' S prest
+     | '[' broke
+     | '[' frag broke
+     | '{' carl
+     | '{' frag carl
 
-loan = EOF | whyt EOF | whyt frag loan
-line = whyt? (EOF | frag loan)
+# Open space (can include line-comment)
+open = C
+     | S C
+     | S
+
+loan = EOF
+     | open EOF
+     | open frag loan
+
+lean = EOF
+     | frag loan
+
+line = open lean
+     | lean
 ```

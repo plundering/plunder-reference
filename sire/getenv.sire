@@ -1,0 +1,34 @@
+/+  rex     (EBED)
+/+  either  (RIGHT)
+/+  eql     (eql)
+/+  row     (len ",")
+/+  hax     ("#")
+
+
+;;;;;;;;;;;;;
+;; Exports ;;
+;;;;;;;;;;;;;
+
+= ("#getenv" env nex kids heir)
+| RIGHT [0 EBED-env]
+
+
+;;;;;;;;;;;
+;; Tests ;;
+;;;;;;;;;;;
+
+/+  tab  (look tabKeys)
+
+?? eql $"#getenv" | look #getenv "#getenv"
+?? eql len        | look #getenv %len
+?? eql $"#"       | look #getenv "#"
+
+?? eql (tabKeys #getenv)
+    ['#' ',' %eql %len %EBED %look %RIGHT %tabKeys "#getenv"]
+
+
+;;;;;;;;;;;;;
+;; Exports ;;
+;;;;;;;;;;;;;
+
+^-^ "#" "#getenv"

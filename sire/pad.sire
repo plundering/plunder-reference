@@ -20,9 +20,9 @@
 ;;;
 ;;; padWeld: Concatenate two pads
 ;;;
-;;; padConcat: Concatenate a row of pads (TODO)
+;;; padCat: Concatenate a row of pads (TODO)
 ;;;
-;;; padConcatTree: Concatenate a rose-tree of pads (TODO)
+;;; padCatTree: Concatenate a rose-tree of pads (TODO)
 ;;;
 ;;; padIdx: TODO
 ;;; padGet: TODO
@@ -31,6 +31,7 @@
 ;;;
 
 /+  nat
+/+  cord
 /+  bool
 /+  eql
 
@@ -39,44 +40,38 @@
 = (padNat x)
 @ x toPad-x
 | sub x
-| bex | dec bitWidth-x
+| bex | dec met-x
 
 = (padWeld x y)
 @ x toPad-x
 @ y toPad-y
-@ wid (dec bitWidth-x)
+@ wid (dec met-x)
 | add (sub x bex-wid)
 | lsh y wid
 
 = (natPad n wid)
-@ pid bitWidth-n
+@ pid met-n
 | padWeld
-   | add n (bex bitWidth-n)
-| bex (sub wid (bitWidth n))
+   | add n (bex met-n)
+| bex (sub wid (met n))
 
 
 ;;;;;;;;;;;;
 ;; Syntax ;;
 ;;;;;;;;;;;;
 
-/+  prim (seq)
-/+  either (LEFT RIGHT)
-/+  row (mkRow weld len idx map)
-/+  list (listFromRow listCase)
-/+  macro (HEIR WORD rexCase cnsE)
+/+  prim    (seq)
+/+  either  (LEFT RIGHT)
+/+  row     (cow weld len idx map)
+/+  row     (",")
+/+  list    (listFromRow listCase)
+/+  rex     (HEIR WORD rexCase)
+/+  sire    (cnsE)
 
-; TODO This should probably go into `cord.sire`
-= (explode s)
-@ wid | div (roundUp bitWidth-s 8) 8
-. 0 s (mkRow wid)
-? (loop i s acc)
-| if (eql i wid) acc
-| loop inc-i (rsh s 8) | acc | dis 0xff s
-
-(padLen p)=(dec bitWidth-p)
+(padLen p)=(dec met-p)
 
 = (padFromBinary nat)
-@ dig | map eql-"1" explode-nat
+@ dig | map eql-"1" cordToRow-nat
 @ buf | listFromRow weld-dig-[1]
 . 0 buf 1
 ? (loop acc lis pos)
@@ -95,9 +90,9 @@
 | if (neq 1 len-kids) badShape
 ! rexCase pram
    (_ _ _)&badType
-   (bare)&{RIGHT , 0 | cnsE | padFromBinary bare}
-   (text)&{RIGHT , 0 | cnsE | padFromBinary text}
-   (page)&{RIGHT , 0 | cnsE | padFromBinary page}
+   (bare)&(| RIGHT , 0 | cnsE | padFromBinary bare)
+   (text)&(| RIGHT , 0 | cnsE | padFromBinary text)
+   (page)&(| RIGHT , 0 | cnsE | padFromBinary page)
    (_)&badType
 
 

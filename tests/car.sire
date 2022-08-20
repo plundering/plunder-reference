@@ -8,7 +8,7 @@
 = tags ,, cdr | car | car | cdr car
        ,, cdr | car | car | cdr cdr
 
-k4={cdr | car | car | car | cdr | car | cdr | cdr car}
+k4=(| cdr | car | car | car | cdr | car | cdr | cdr car)
 
 = car (car-car ((car cdr-car) (cdr cdr-car)))
 

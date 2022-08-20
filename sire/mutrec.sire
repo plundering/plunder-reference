@@ -1,0 +1,273 @@
+/+  bool
+/+  cord
+/+  either
+/+  eql
+/+  hax
+/+  list
+/+  macro
+/+  maybe
+/+  nat
+/+  cord (cordToRow)
+/+  openRow
+/+  prim
+/+  pin
+/+  row
+/+  tab
+/+  rex
+/+  sire
+/+  row     (",")
+/+  tar     ("*")
+/+  rex     ("`")
+/+  com     (",,")
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Some Monadic Operations on `Option` ;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+; TODO This belongs elsewhere
+
+;; sequence :: Row (Option a) -> Option (Row a)
+= (optionRowSequence results)
+. NIL listFromRow-results
+? (loop acc rest)
+! listCase rest
+   SOME-(listToRowReversed acc)
+& (mX more)
+! maybeCase mX NONE
+& x (loop (CONS x acc) more)
+
+(optionRowTraverse f xs)=(optionRowSequence map-f-xs)
+
+?? | eql NONE
+   | optionRowSequence [SOME-3 SOME-4 NONE]
+
+?? | eql SOME-[3 4 5]
+   | optionRowSequence [SOME-3 SOME-4 SOME-5]
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Parsing Nat Literals ;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+; TODO This belongs elsewhere
+
+; (Char > Some Nat)
+= (readDigit char)
+| tabSwitch char NONE
+%% ="0" SOME 0
+%% ="1" SOME 1
+%% ="2" SOME 2
+%% ="3" SOME 3
+%% ="4" SOME 4
+%% ="5" SOME 5
+%% ="6" SOME 6
+%% ="7" SOME 7
+%% ="8" SOME 8
+%% ="9" SOME 9
+
+; (Nat > Maybe Nat)
+= (readNat n)
+@ mDigits (optionRowTraverse readDigit cordToRow-n)
+! maybeCase mDigits NONE
+& nums
+@ f
+   & (elem rest)
+   * [pos acc] rest
+   (mul 10 pos, add acc mul-pos-elem)
+| ifNot len-nums NONE
+! SOME (idx 1)(foldr f [1 0] nums)
+
+?? eql SOME-1   readNat-"1"
+?? eql SOME-12  readNat-"12"
+?? eql SOME-123 readNat-"123"
+?? eql NONE     readNat-""
+?? eql NONE     readNat-"a"
+
+= (readNatEither rex msg nat)
+! maybeCase (readNat nat) LEFT-[rex msg] RIGHT
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Macro: Mutually Recursive Funs ;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+; TODO This belongs elsewhere.  Maybe in `sire.sire`?
+
+= (readAtomLit rex)
+@ bad (LEFT [rex "Not an atom literal (readAtomLit)"])
+! rexCase rex
+      & (rune kids heir)
+      | if  | rowOr
+            ,, neq "%" rune
+            ,, neq 0   heir
+            ,, neq 1   len-kids
+          bad
+      ! rexGetWord idx-0-kids bad
+      | (num & RIGHT num)
+  (x & (! readNatEither rex bad x))
+  (x & RIGHT-x)
+  (x & RIGHT-x)
+  (v & if isNat-v RIGHT-v bad)
+
+
+;
+; unrollSlip2Tis
+;     :: (Rex -> Either Rex,Text Rex,Rex)
+;     -> Rex
+;     -> Either Rex,Text (Row Rex,Rex)
+;
+= (unrollSlip2Tis fb rex)
+. NIL rex
+? (loop acc form)
+@ fallback
+   ! eitherOpen (fb form)
+   & term
+   | loop CONS-term-acc 0
+| if (eql 0 form)
+   | RIGHT listToRowReversed-acc
+! rexGetNode form fallback
+& (n kids heir)
+| if (neq "=" n) fallback
+@ nkid len-kids
+| if (and (eql 1 nkid) (neq 0 heir))
+   @ kid idx-0-kids
+   | loop CONS-[kid heir]-acc 0
+| if (neq 2 nkid)
+   | LEFT [form "= node expects two parameters"]
+| loop CONS-kids-acc heir
+
+= (readSignature rex)
+@ mustBe """Function Signature must be a symbol `x` or signature `(x y z)`
+@ err LEFT-[rex mustBe]
+! rexCase rex
+         & (rune args cont)
+         @ noCont """name-sequence cannot have a continuation
+         | if (neq rune "|") | err
+         | if (neq cont 0)   | LEFT [rex noCont]
+         | eitherRowTraverse readSymbol args
+      & _
+      ! eitherOpen (readSymbol rex)
+         (res & [(idx 0 res)])
+   (_ & err)
+   (_ & err)
+   (_ & err)
+
+= (readCorePattern sig body)
+! eitherOpen (readSignature sig)
+   (args & RIGHT-[args body])
+
+= (readCoreBody rex)
+! eitherOpen
+   | unrollSlip2Tis (rx & LEFT [rx 'Not a core arm']) rex
+& clauses
+| eitherRowTraverse (rowApply readCorePattern) clauses
+
+; TODO Move this to `sire.sire`
+= (anonLamE args body)
+| HEIR "&" [appE-args] body
+
+; TODO Move this to `sire.sire`
+= (taggedLamE idn tag args body)
+@ tagIdn (NODE "$" [idn natE-tag])
+| HEIR "?" [appE-(weld [tagIdn] args)]
+| body
+
+?? | eql ` (? (a$3 x y))z
+   | taggedLamE `a 3 [`x `y] `z
+
+= (matchE x f ps)
+| appE [cnsE-match x f vecE-ps]
+
+;;; TODO Need to fix macro interface because passing "#mutrec" to
+;;; `gensymMacro` is nonsense.
+= ("#mutrec" env nex kids heir)
+. env nex kids heir
+| gensymMacro "#mutrec"
+   ,, readAtomLit
+   ,, RIGHT
+   ,, readCoreBody
+& (nex coreTag letBody sigExpPairs)
+@ coreIdn (gensymE nex)
+@ coreArg (gensymE inc-nex)
+@ bindArms
+   ? (bindArms body arms)
+   ! listCase arms body
+   & (item rest)
+   * key,arm item
+   * sig,_ arm
+   @ armArgs (map WORD drop-1-sig)
+   | letE (WORD idx-0-sig)
+       | anonLamE armArgs
+       | appE
+       ,, coreIdn
+       ,, vecE-(weld [natE-key] armArgs)
+   | bindArms body rest
+@ arms
+   | listZip listEnumFrom-0 listFromRow-sigExpPairs
+@ branches
+   | turn listToRow-arms
+   & item
+   * _,arm item
+   * sig,body arm
+   | NODE "*"
+   @ binds | map WORD
+           | weld ["_"] drop-1-sig
+   ,, NODE "," binds
+   ,, coreArg
+   ,, body
+@ coreBody (matchE coreArg natE-0 branches)
+| RIGHT
+, 2
+| letE coreIdn
+   | taggedLamE coreIdn coreTag [coreArg]
+   | bindArms coreBody arms
+| bindArms letBody arms
+
+
+;;;;;;;;;;;
+;; Tests ;;
+;;;;;;;;;;;
+
+= (looper start)
+# mutrec %loop (! loop start)
+= (loop xx)
+   | ifNot xx 0 ! loop 0
+
+= loopFun
+? (looper start)
+. [0 start]
+? (loop b)
+| match b 0
+,, ifNot idx-1-b 0 loop-[0 0]
+
+?? eql (car looper) (0 0 1)
+?? eql (cdr looper) (0 (2 loopFun) 1)
+
+?? eql (pinItem looper) loopFun
+?? eql looper           (mkPin loopFun)
+
+= evenOdd
+# mutrec %even_odd
+   ,, mkPin | 0 %even 1 (0 even 1)
+   ,, mkPin | 0 %odd  1 (0 odd 1)
+= (even x)
+   | ifNot x true  (! odd dec-x)
+= (odd x)
+   | ifNot x false (! even dec-x)
+
+even=(idx 0 evenOdd)
+odd=(idx 1 evenOdd)
+
+?? even 0
+?? even 2
+?? even 20
+?? odd 1
+?? odd 3
+?? odd 21
+
+
+;;;;;;;;;;;;;
+;; Exports ;;
+;;;;;;;;;;;;;
+
+^-^ "#mutrec"

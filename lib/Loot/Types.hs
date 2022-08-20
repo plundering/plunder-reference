@@ -35,7 +35,7 @@ where
 
 import PlunderPrelude
 
-import Plun.Types (LawName(..))
+import Plun (LawName(..))
 
 ----------------------------------------
 -- Identifier with Explicit Tag Value --

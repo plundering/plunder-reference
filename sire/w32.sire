@@ -1,28 +1,20 @@
-;;; TODO Use `sed` to generate these for different word sizes (32,
-;;; 48, 64).
+;;; TODO Use `sed` to generate identical modules for different words
+;;; sizes? (8, 16, 32, 48, 64, 128, 256).
 ;;;
-;;; TODO Split into w32 and i32.
+;;; TODO Split into w32, i32, and b32?  Or keep it all in one module?
 ;;;
 ;;; TODO Figure out why this diverges from w48, and if any of those
 ;;; divergencies matter.
 
-;;; /+  w32  (w32 wMax32 wMin32)
-;;; /+  w32  (inc32 dec32 add32 mul32 div32)
-;;; /+  w32  (lth32 gth32 lte32 gte32 eql32)
-;;; /+  w32  (not32 and32 or32 xor32 lsh32 rsh32)
-;;; /+  w32  (chop32 isZero32 sub32 ror32 rol32)
-;;; /+  w32  (bitFlip32)
-;;;
-;;; /+  w32  (i32 iMax32 iMin32)
-;;; /+  w32  (iIsZero32 iIsNeg32 iNeg32 iAbs32)
-;;; /+  w32  (iGth32 iLth32 iGte32 iLte32 iEql32)
-;;; /+  w32  (iInc32 iDec32 iAdd32 iSub32)
-;;; /+  w32  (iMul32 iDiv32)
-
+/+  prim  (cdr)
 /+  bool  (if not xor and or)
 /+  nat   (inc dec add sub mul div mod bex)
 /+  nat   (lth gth lte gte aeq)
 /+  nat   (lsh rsh dis con mix)
+/+  row   (foldr gen)
+/+  com   (",")
+/+  eql   (eql)
+/+  bar   ("#" "#x" "#b" padBar)
 
 ;;;;;;;;;;;;;;;;;;
 ;; 32-bit Words ;;
@@ -84,7 +76,7 @@ isZero32=not32
 
 = (iDiv32 x y)
 @ res | div32 (iAbs32 x) (iAbs32 y)
-| if [xor iIsNeg32-x iIsNeg32-x]
+| if (xor (iIsNeg32 x) (iIsNeg32 x))
     | iNeg32 res
 | res
 
@@ -92,13 +84,65 @@ isZero32=not32
 | if (iIsNeg32 x)
     | and (iIsNeg32 y)
     | gth32 (iNeg32 y) (iNeg32 x)
-|
-    | or (iIsNeg32 y)
-    | gth32 x y
+| or (iIsNeg32 y)
+| gth32 x y
 
 = (iGte32 x y) | or (eql32 x y) (iGth32 x y)
 = (iLte32 x y) | iGte32 y x
 = (iLth32 x y) | iGth32 y x
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;
+;;; Array Operations ;;;
+;;;;;;;;;;;;;;;;;;;;;;;;
+
+;;; We represent packed word-arrays as bars (bytestrings).
+
+= (put32 bar ix wor)
+@ bits | cdr bar
+@ off  | mul ix 32
+@ targ | w32 (rsh bits off)
+| padBar
+| add (lsh wor off)
+| mix bits (lsh targ off)
+
+= (get32 bar ix)  | w32 (rsh cdr-bar mul-ix-32)
+= (idx32 ix bar)  | get32 bar ix
+= (zer32 wid)     | padBar bex-(mul 32 wid)
+= (sing32 w)      | padBar (add bex32 w32-w)
+= (fromRow32 row) | padBar (foldr (x p & add w32-x lsh-p-32) 1 row)
+= (gen32 n f)     | fromRow32 (gen n f)
+= (mut32 i w b)   | put32 b i w
+
+
+;;;;;;;;;;;
+;; Tests ;;
+;;;;;;;;;;;
+
+?? eql | gen32 3 (mul 0x11111111)
+   x#000000001111111122222222
+
+?? eql 0x00000000 | idx32 0 x#000000001111111122222222
+?? eql 0x11111111 | idx32 1 x#000000001111111122222222
+?? eql 0x22222222 | idx32 2 x#000000001111111122222222
+
+?? eql (fromRow32 [%helo %howR %yogh])
+   b#helohowRyogh
+
+?? eql (put32 (zer32 5) 0 0xffffffff)
+   x#ffffffff00000000000000000000000000000000
+
+?? eql (put32 (zer32 5) 3 0xffffffff)
+   x#000000000000000000000000ffffffff00000000
+
+?? eql x#ffffffff (sing32 0xffffffff)
+?? eql x#55555555 (sing32 0x55555555)
+?? eql x#55550000 (sing32 0x5555)
+
+
+;;;;;;;;;;;;;
+;; Exports ;;
+;;;;;;;;;;;;;
 
 ^-^ w32 wMax32 wMin32
 ^-^ inc32 dec32 add32 mul32 div32
@@ -112,3 +156,7 @@ isZero32=not32
 ^-^ iGth32 iLth32 iGte32 iLte32 iEql32
 ^-^ iInc32 iDec32 iAdd32 iSub32
 ^-^ iMul32 iDiv32
+^-^
+^-^ zer32 fromRow32
+^-^ sing32 gen32
+^-^ get32 idx32 put32

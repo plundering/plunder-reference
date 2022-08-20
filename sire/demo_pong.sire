@@ -1,3 +1,17 @@
+/+ prim
+/+ nat
+/+ row
+/+ list
+/+ bool
+/+ eql
+/+ blake3
+/+ tar ("*")
+/+ com (",,")
+/+ hax ("#")
+/+ switch ("#switch")
+
+(snoc row e)=(weld row [e])
+
 = (addEf free fx ef)
 ! listCase free (len fx, NIL, snoc fx ef )
 & (f fs)
@@ -49,10 +63,10 @@ sireKey=(get sireResp 1)
 pongPub=(get pongResp 0)
 pongKey=(get pongResp 1)
 
-,, [%pongKey (showHash barBytes-pongKey)]
-,, [%pongPub (showHash barBytes-pongPub)]
-,, [%sireKey (showHash barBytes-sireKey)]
-,, [%sirePub (showHash barBytes-sirePub)]
+,, [%pongKey pongKey]
+,, [%pongPub pongPub]
+,, [%sireKey sireKey]
+,, [%sirePub sirePub]
 
 = replyBot
 . [[%recv pongKey sirePub]]
@@ -64,8 +78,9 @@ pongKey=(get pongResp 1)
 . ackFx
 ? (ack x i r)
 | trk %ack
-` i = 0 | die 'wait to send me more'
-    = 1 | listen [[%recv pongKey sirePub]]
+# switch i
+= 0 | die 'wait to send me more'
+= 1 | listen [[%recv pongKey sirePub]]
 
 [i r]<-[[%fork replyBot]]
 [i r]<-[[%send sireKey pongPub %hi]]

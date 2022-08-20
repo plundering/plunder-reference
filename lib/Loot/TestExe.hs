@@ -30,7 +30,7 @@ cab,cabHash :: Nat
 cab = utf8Nat "_"
 cabHash = utf8Nat "_hash"
 
-goldenLoot :: RexColor => IORef (Map Symb Pln) -> GoldPaths -> TestTree
+goldenLoot :: RexColor => IORef (Map Symb Fan) -> GoldPaths -> TestTree
 goldenLoot vEnv pax = do
     runTest pax doBlk end
   where
@@ -42,10 +42,10 @@ goldenLoot vEnv pax = do
     end :: Handle -> IO ()
     end h = do
         env <- readIORef vEnv
-        pln <- pure $ fromMaybe (AT 0) $ lookup cab env
+        pln <- pure $ fromMaybe (NAT 0) $ lookup cab env
         has <- pinHash <$> mkPin' pln
         Repl.printValue h False (Just cab) pln
-        Repl.printValue h True (Just cabHash) (mkBar has)
+        Repl.printValue h True (Just cabHash) (BAR has)
         hFlushAll h >> hClose h
         validateLoot gpOutput (gpSource <> ".tmp")
 
@@ -55,10 +55,10 @@ validateLoot lootFile tempFile = do
     Repl.replFile lootFile (Repl.runBlock devNull False vEnv)
     h <- openFile tempFile WriteMode
     env <- readIORef vEnv
-    pln <- pure $ fromMaybe (AT 0) $ lookup cab env
+    pln <- pure $ fromMaybe (NAT 0) $ lookup cab env
     has <- pinHash <$> mkPin' pln
     Repl.printValue h False (Just cab) pln
-    Repl.printValue h True (Just cabHash) (mkBar has)
+    Repl.printValue h True (Just cabHash) (BAR has)
     hFlushAll h >> hClose h
     srcText <- readFileUtf8 lootFile
     tmpText <- readFileUtf8 tempFile

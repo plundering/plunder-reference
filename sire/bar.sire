@@ -1,38 +1,43 @@
-/+  prim   (funBody seq die)
-/+  bool   (if ifNot not and or)
+/+  prim   (isNat isFun isApp)
+/+  prim   (funName funArgs funBody seq die)
+/+  bool   (if ifNot bit not and or)
 /+  nat    (inc dec add sub mod mul div)
 /+  nat    (lte lth min)
-/+  nat    (takeByte dropByte)
 /+  nat    (bex lsh rsh)
-/+  nat    (roundUp bitWidth dis even)
+/+  nat    (met dis even)
 /+  eql    (eql neq)
-/+  row    (mkRow idx get len)
+/+  row    (cow idx get len rowAnd)
 /+  row    (gen map foldr foldl drop take)
-/+  row    (weld concat)
+/+  row    (weld cat)
+/+  row    (",")
 /+  list   (NIL CONS listCase listMap listTurn)
 /+  list   (listFromRow listToRow)
 /+  either (LEFT RIGHT)
-/+  macro  (rexCase WORD HEIR cnsE rexGetWord)
-/+  tab    (tabHas tabGet)
+/+  rex    (rexCase WORD HEIR rexGetWord)
+/+  sire   (cnsE)
+/+  tab    (hasKey look)
 /+  hax    ("#")
 /+  pad    (padWeld padLen)
-/+  cord   (explode)
+/+  cord   (cordToRow cordDrop cordTake)
+/+  com    (",,")
 
-;;;;;;;;;;;
-;; Blobs ;;
-;;;;;;;;;;;
+;;;;;;;;;;
+;; Bars ;;
+;;;;;;;;;;
 
-;;;
-;;; A blob is a byte array encoded as a
-;;; nat and a count for the number of
-;;; trailing zero bytes.
-;;;
-;;; This pair is then wrapped in a fun for
-;;; datajetting, and given the special name
-;;; `3`
 ;;;
 ;;; TODO Should bars be defined in terms of pads?
 ;;;
+
+= (isBar b)
+@ bod (funBody b)
+| rowAnd
+,, isFun b
+,, eql 1 funName-b
+,, eql 1 funArgs-b
+,, isNat bod
+,, neq 0 bod
+,, eql 0 (mod padLen-bod 8)
 
 = (byteWidth n)
 . 0 n
@@ -51,14 +56,15 @@
 @ nac | ifNot mod-num-8 (inc acc) 0
 | loop nac nex
 
-= (barEnc pad bits)
+= (barEnc xtr bits)
 | add bits
-| bex | mul 8 | add pad byteWidth-bits
+| bex | mul 8 | add xtr byteWidth-bits
 
 = (barDec n)
 | sub n | bex | mul 8 (dec byteWidth-n)
 
-= (mkBar pad bits) | 0 1 1 (barEnc pad bits)
+= (padBar pad)     | 0 1 1 pad
+= (mkBar xtr bits) | padBar (barEnc xtr bits)
 = (natBar n)       | mkBar 0 n
 = (barNat n)       | barDec (funBody n)
 = (barLen bar)     | div (padLen funBody-bar) 8
@@ -67,9 +73,9 @@
 . i (barNat bar)
 ? (loop i n)
 ; trk [%loop i n]
-| ifNot i (takeByte n)
+| ifNot i (mod n 256)
 | ifNot n 0
-| loop (dec i) (dropByte n)
+| loop (dec i) (div n 256)
 
 ; Number of zeros at the end of a row.
 = (zEnd r)
@@ -80,6 +86,14 @@
 | if vl n
 | ifNot ix inc-n
 | loop inc-n dec-ix
+
+= (barHas byt bar)
+@ wid (barLen bar)
+. 0
+? (loop i)
+| if (eql i wid) 0
+| if (eql byt barIdx-i-bar) 1
+| loop (inc i)
 
 ; Strip zeros from the end of a row.
 = (stripZEnd r)
@@ -106,7 +120,7 @@
 
 emptyBar=(0 1 1 1)
 
-(barConcat bs)=(foldr barWeld emptyBar bs)
+(barCat bs)=(foldr barWeld emptyBar bs)
 
 = (barIntercalate sep vals)
 . emptyBar listFromRow-vals
@@ -115,16 +129,16 @@ emptyBar=(0 1 1 1)
 & (x xs)
 ! listCase xs (barWeld acc x)
 & (_ _)
-| go (barConcat acc,x,sep) xs
+| go (barCat acc,x,sep) xs
 
 = (hexCharToNat v)
 | if (lte v %9) (sub v %0)
 | add 10 (sub (min v %f) %a)
 
 = (barFromHex nat)
-@ dig | map hexCharToNat explode-nat
+@ dig | map hexCharToNat cordToRow-nat
 @ pad | if (even len-dig) [] [0]
-@ buf | listFromRow concat-[pad dig [0 1]]
+@ buf | listFromRow cat-[pad dig [0 1]]
 . 0 buf 1
 ? (loop acc lis pos)
 | seq acc
@@ -132,27 +146,35 @@ emptyBar=(0 1 1 1)
 & (a as)
 ! listCase as (die %impossible)
 & (b bs)
-@ acc {add acc | add mul-pos-b | mul-pos | mul 16 a}
+@ acc (| add acc | add mul-pos-b | mul-pos | mul 16 a)
 | loop acc bs (mul 256 pos)
 
 (barPad bar)=(funBody bar)
 
 = (barLit name func _ _ kids heir)
-@ rexp (HEIR "#" (weld WORD-name kids) heir)
-@ badShape LEFT-[rexp "Expcted two kids and no heir"]
-@ badType  LEFT-[rexp "Bar literal expects a text parameter"]
-@ pram     (idx 0 kids)
-| if (neq 0 heir)     badShape
+@ rexp     | HEIR "#" (weld WORD-name kids) heir
+@ badShape | LEFT [rexp "Expcted two kids"]
+@ badType  | LEFT [rexp "Bar literal expects a text parameter"]
+@ kids     | if (eql 0 heir) kids (weld kids [heir])
+@ pram     | idx 0 kids
 | if (neq 1 len-kids) badShape
 ! rexCase pram
    (_ _ _)&badType
-   (bare)&{RIGHT , 0 | cnsE | func bare}
-   (text)&{RIGHT , 0 | cnsE | func text}
-   (page)&{RIGHT , 0 | cnsE | func page}
+   (bare)&(| RIGHT , 0 | cnsE | func bare)
+   (text)&(| RIGHT , 0 | cnsE | func text)
+   (page)&(| RIGHT , 0 | cnsE | func page)
    (_)&badType
 
 "#b"=(barLit "b" natBar)
 "#x"=(barLit "x" barFromHex)
+
+= (barFlat x)
+| if isBar-x
+    | x
+| if isApp-x
+    | barCat
+    | map barFlat x
+| b#""
 
 
 ;;;;;;;;;;;
@@ -176,6 +198,16 @@ emptyBar=(0 1 1 1)
 ?? eql 3 (barTrail 0x1000000ff)
 ?? eql 0 (barTrail 0x2000000ff)
 
+?? bit (barHas %a b#"abc")
+?? bit (barHas %b b#"abc")
+?? bit (barHas %c b#"abc")
+?? not (barHas %d b#"abc")
+
+?? bit (barHas 16 x#"102030")
+?? bit (barHas 32 x#"102030")
+?? bit (barHas 48 x#"102030")
+?? not (barHas 45 x#"102030")
+
 ?? checkBar 1     0 0
 ?? checkBar 257   0 1
 ?? checkBar 511   0 255
@@ -189,9 +221,11 @@ emptyBar=(0 1 1 1)
 ;; Exports ;;
 ;;;;;;;;;;;;;
 
+^-^ isBar padBar
 ^-^ byteWidth barTrail barEnc barDec mkBar natBar barNat barLen barIdx
 ^-^ zEnd stripZEnd w8 bytesBar barGen barGet barBytes barFoldl barFoldr
-^-^ barWeld barConcat barIntercalate
+^-^ barWeld barCat barIntercalate
 ^-^ barFromHex barPad
+^-^ barFlat barHas
 ^-^
-^-^ "#b" "#x"
+^-^ "#b" "#x" "#"

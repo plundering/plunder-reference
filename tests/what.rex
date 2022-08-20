@@ -25,23 +25,23 @@
     !!  >> scrut
         ? NONE
             !! pure []
-        ? {SOME | LEFT er}
+        ? (| SOME | LEFT er)
             !! go-err NA er
-        ? {SOME | RIGHT EMP-LINE}
+        ? (| SOME | RIGHT EMP-LINE)
             !! yield-block so-far
             !! continue []
-        ? {SOME | RIGHT | CONTINUED fs}
+        ? (| SOME | RIGHT | CONTINUED fs)
             !! if null so-far
             !! then go-err NA bad-indent
             !! else continue (so-far <> fs)
-        ? {SOME | RIGHT | NEW-BLOCK fs}
+        ? (| SOME | RIGHT | NEW-BLOCK fs)
             !! yield-block so-far
             !! continue fs
-        ? {SOME | RIGHT | ONE-LINE w}
+        ? (| SOME | RIGHT | ONE-LINE w)
             !! yield-block so-far
             !! yield-block ~(0 , WIDE w)
             !! continue []
-        ? {SOME | RIGHT | TOP-MULTI-SHUT w f}
+        ? (| SOME | RIGHT | TOP-MULTI-SHUT w f)
             ;; Let the parser handle it, not our problem.
             !! yield-block (0 , WIDE w)
             !! continue []

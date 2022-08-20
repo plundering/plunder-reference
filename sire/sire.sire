@@ -1,0 +1,134 @@
+/+  either  (LEFT RIGHT eitherOpen eitherCase)
+/+  bool    (if ifNot not and or false)
+/+  eql     (eql neq)
+/+  prim    (apply)
+/+  row     (idx len all map zipWith rowApply)
+/+  row     (",")
+/+  list    (CONS NIL digits listCase)
+/+  list    (listFromRow listToRowReversed)
+/+  cord    (cordToRow isDigit isAlpha cordWeld cordCat)
+/+  rex     (FAIL WORD NODE HEIR CORD EBED)
+/+  rex     (rexGetWord rexCase rexGetNodeFolded)
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; UTILS THAT DO NOT BELONG HERE ;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;; sequence :: Row (Either a b) -> Either a (Row b)
+= (eitherRowSequence results)
+. NIL listFromRow-results
+? (loop acc rest)
+! listCase rest
+   RIGHT!(listToRowReversed acc)
+& (eth more)
+! eitherCase eth LEFT
+& x (loop (CONS x acc) more)
+
+(eitherRowTraverse f xs)=(eitherRowSequence map-f-xs)
+
+
+;;;;;;;;;;;;
+;; Basics ;;
+;;;;;;;;;;;;
+
+(showNat n)=(cordCat digits-n)
+
+= (natE n)     | WORD showNat-n
+= (varE v)     | WORD v
+= (cnsE v)     | EBED v
+= (barE xs)    | NODE "|" xs
+= (appE2 x y)  | NODE "|" [x y]
+= (letE i x b) | HEIR "@" [i x] b
+= (recE i x b) | HEIR "@@" [i x] b
+= (txtE t)     | CORD t
+
+= (appE xs)
+| if (eql 1 len-xs) idx-0-xs
+| NODE "|" xs
+
+
+;;;;;;;;;;;;;
+;; Symbols ;;
+;;;;;;;;;;;;;
+
+= (isSymbolChar c)
+| or eql-"_"-c
+| or isAlpha-c
+     isDigit-c
+
+= (isSymbol cord)
+| if (eql 0 cord) false
+@ chars cordToRow-cord
+@ c0 idx-0-chars
+| and (not isDigit-c0)
+| all isSymbolChar chars
+
+= (getSymbol rex k)
+! rexGetWord rex LEFT-[rex "`readSymbol` expected a NAME node"]
+& n
+| ifNot isSymbol-n LEFT-[rex "Invalid Character in Symbol"]
+! k n
+
+= (readSymbol rex)
+! getSymbol rex (x & RIGHT x)
+
+
+;;;;;;;;;;;;;;;;
+;; Signatures ;;
+;;;;;;;;;;;;;;;;
+
+; TODO Move this elsewhere
+= (readNodeMerged rex parsers k)
+@ nonNode LEFT-[rex "Expected a node"]
+! rexGetNodeFolded rex nonNode
+& (rune kids)
+@ expecting
+   | cordCat ("Expecting ", showNat len-parsers, " kids")
+| if (neq len-parsers len-kids) | FAIL rex expecting
+! eitherOpen (| eitherRowSequence | zipWith apply parsers kids)
+& params
+| rowApply k params ;; TODO Can I inline this somehow?
+
+
+; readRowOfNames :: Text -> Rex -> Either (Rex, Text) [Text]
+= (readRowOfNames ctx rex)
+@ mustBe
+    | cordWeld ctx
+    | " pattern must be a symbol (x) or a row of: (x,y,z)"
+@ onErr  | (_ & FAIL rex mustBe)
+@ noHeir | "name-sequence cannot have an heir"
+@ onNode
+    & (rune kids heir)
+    | if (neq rune ",") | FAIL rex mustBe
+    | if (neq heir 0)   | FAIL rex noHeir
+    | eitherRowTraverse readSymbol kids
+@ onWord
+    & _
+    ! eitherOpen readSymbol-rex
+    & res
+    | idx 0 res
+! rexCase rex onNode onWord onErr onErr onErr
+
+
+;;;;;;;;;;;
+;; Tests ;;
+;;;;;;;;;;;
+
+?? | eql LEFT-"hi"
+   | eitherRowSequence [RIGHT-3 LEFT-"hi" RIGHT-4]
+
+?? | eql RIGHT-[3 4 5]
+   | eitherRowSequence [RIGHT-3 RIGHT-4 RIGHT-5]
+
+
+;;;;;;;;;;;;;
+;; Exports ;;
+;;;;;;;;;;;;;
+
+^-^ isSymbolChar isSymbol getSymbol readSymbol
+^-^ natE varE cnsE barE appE2 letE txtE appE
+^-^
+^-^ showNat eitherRowSequence eitherRowTraverse
+^-^
+^-^ readRowOfNames readNodeMerged

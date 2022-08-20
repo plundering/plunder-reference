@@ -7,25 +7,28 @@ import Options.Applicative
 import System.Directory
 import System.Posix.Resource
 import System.Posix.Signals
+import System.Random         (randomRIO)
 
--- TODO: This should go in a common location instead of directly reaching in or
--- copypasting it.
-import Server.LmdbStore
-import Server.SimpleMachine
+import Loot.Backend         (plunLoad)
+import Plun.Print           (decodeBtc, encodeBtc)
+import Server.Hardware
+import Server.Hardware.Rand
+import Server.LmdbStore     (getMachineNames, loadMachine, openDatastore,
+                             queueWriteLogBatch)
+import Server.SimpleMachine (replayMachine)
+import Server.Time          (getNanoTime)
 import Server.Types.Logging
 import Server.Types.Machine
+import Sire.ReplExe         (showPlun)
 
-import Plun.Print   (decodeBtc, encodeBtc)
-import Loot.Backend (plunLoad)
-import Sire.ReplExe (showPlun)
+import Plun as P hiding ((^))
 
-import Plun as P
 
 --------------------------------------------------------------------------------
 
 data RunType
-  = RTBoot FilePath MachineName Text
-  | RTReplay ReplayFrom FilePath MachineName
+    = RTBoot FilePath MachineName Text
+    | RTRun ReplayFrom FilePath
 
 parseMachineName :: Parser MachineName
 parseMachineName =
@@ -44,11 +47,10 @@ runType = subparser
               parseMachineName <*>
               strArgument (metavar "HASH" <> help "Boot using this hash"))
         $ progDesc "Boots a machine.")
-   <> command "replay"
-      ( info (RTReplay <$>
+   <> command "run"
+      ( info (RTRun <$>
               replayFromOption <*>
-              strArgument (metavar "STORE" <> help "Use this datstore") <*>
-              parseMachineName)
+              strArgument (metavar "STORE" <> help "Use this datstore"))
         $ progDesc "Replays the events in a machine.")
 
 runInfo :: ParserInfo RunType
@@ -58,7 +60,7 @@ runInfo = info (runType <**> helper)
   <> header "new-network - a test for running plunder machines" )
 
 
--- Initial test here. We create a store, create one machine in it, and then
+-- | Initial test here. We create a store, create one machine in it, and then
 -- write one artificial logbatch, and then read it back.
 main = do
   -- Setup plunder interpreter state.
@@ -69,6 +71,9 @@ main = do
   let onKillSignal = atomically $ putTMVar ctrlCPressed ()
   for_ [sigTERM, sigINT] $ \sig -> do
     installHandler sig (Catch onKillSignal) Nothing
+
+  -- TODO: To really exercise the multicase, boot has to just boot and "replay"
+  -- has to become "run"
 
   execParser runInfo >>= \case
     RTBoot datastorePath machineName bootHash -> do
@@ -86,25 +91,54 @@ main = do
             -- dedicated pill files instead of reading from the repl cache
             -- instead.
             val <- case pVal of
-              PLN _ (P.DAT (P.PIN P.P{pinItem})) -> pure pinItem
-              _                                  -> error "Impossible"
+              P.PIN P.P{pinItem} -> pure pinItem
+              _                  -> error "Impossible"
 
-            handle <- bootNewMachine lmdbt machineName val
-            asyncFinishOrCtrlC handle ctrlCPressed
+            -- To boot a machine, we just write the initial value as a single
+            -- Init to the log, and then exit.
+            lb <- buildInitialLogBatch val
 
-    RTReplay replayFrom datastorePath machineName -> do
+            sig <- newEmptyTMVarIO
+            atomically $
+              queueWriteLogBatch lmdbt machineName lb (putTMVar sig ())
+            atomically $ takeTMVar sig
+
+    RTRun replayFrom datastorePath  -> do
       with (openDatastore datastorePath) $ \lmdbt -> do
-        loadMachine lmdbt machineName >>= \case
-          NewMachine -> error "Trying to replay a non existing machine"
-          ExistingMachine bn -> do
-            handle <- replayMachine lmdbt replayFrom machineName
-            asyncFinishOrCtrlC handle ctrlCPressed
+        -- Get a list of all machines in this datastore.
+        machines <- getMachineNames lmdbt
 
-asyncFinishOrCtrlC :: MachineHandle -> TMVar () -> IO ()
-asyncFinishOrCtrlC handle onCtrlC = do
+        with createHardwareRand $ \hardwareFun -> do
+          db <- buildHardwareDb [(0, hardwareFun)]
+
+          handles <- forM machines $ \machineName -> do
+            loadMachine lmdbt machineName >>= \case
+              NewMachine -> error "Trying to replay a non existing machine"
+              ExistingMachine bn -> do
+                replayMachine (routerFun db) lmdbt replayFrom machineName
+
+          asyncFinishOrCtrlC handles ctrlCPressed
+
+
+buildInitialLogBatch :: Fan -> IO LogBatch
+buildInitialLogBatch init = do
+  writeTime <- getNanoTime
+
+  firstPid <- ProcessId <$> randomRIO (0, 2 ^ 16)
+
+  let batchNum = BatchNum 0
+      lastSnapshot = BatchNum 0
+      snapshot = Nothing
+      executed = [ReceiptInit init firstPid]
+  pure LogBatch{..}
+
+asyncFinishOrCtrlC :: [MachineHandle] -> TMVar () -> IO ()
+asyncFinishOrCtrlC handles onCtrlC = do
   -- Either the machine thread shuts down, or we shut it down.
+  let asyncs = map thAsync handles
+
   ret <- atomically $
-         (Left <$> waitSTM (thAsync handle) <|>
+         (Left <$> (mapM_ waitSTM asyncs) <|>
           Right <$> readTMVar onCtrlC)
   case ret of
     Left _ -> do
@@ -112,9 +146,18 @@ asyncFinishOrCtrlC handle onCtrlC = do
       pure ()
 
     Right _ -> do
-      -- We must instruct the machine to shutdown.
-      atomically $ writeTQueue' (thControlQ handle)
-                                MachineEventSnapshotAndShutdown
+      putStrLn "Beginning shutdown"
+
+      -- We must instruct each machine in the datastore to shutdown.
+      forM_ handles $ \handle -> do
+        traceM "Shutting down a handle..."
+        atomically $ writeTQueue' (thControlQ handle)
+                                  MachineEventSnapshotAndShutdown
 
       -- Wait for the machine to clean up.
-      wait (thAsync handle)
+      forM_ handles $ \handle -> do
+        traceM "Waiting on a handle"
+        wait (thAsync handle)
+        traceM "Done!"
+
+      putStrLn "Finished asyncFinishOrCtrlC"

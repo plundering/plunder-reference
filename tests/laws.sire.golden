@@ -1293,7 +1293,7 @@
 | listFromRow-a
 
 (optionRowTraverse a b)=(optionRowSequence map-a-b)
-(tabSwitch a b c)=(if (not tabHas-a-c) b tabIdx-a-c)
+(tabSwitch a b c)=(ifNot (tabHas a c) b tabIdx-a-c)
 
 = (readDigit a)
 | tabSwitch a 0
@@ -1514,7 +1514,7 @@
    | appE (R4 cnsE-tabSwitch e g tabE-h)
 
 (jarHash a)=(bytesBar (idx:0 jar-a))
-(pinHash a)=(if (not isPin-a) 0 (jarHash pinItem-a))
+(pinHash a)=(ifNot (isPin a) 0 (jarHash pinItem-a))
 (listAll a b)=(listAnd listMap-a-b)
 (listSum a)=(listFoldr:add:0 a)
 
@@ -1565,7 +1565,7 @@
 | showRex (valRex (idx:1 a))
 
 (jarBytz a)=(bytesBar (idx:2 jar-a))
-(pinBytz a)=(if (not isPin-a) 0 (jarBytz pinItem-a))
+(pinBytz a)=(ifNot (isPin a) 0 (jarBytz pinItem-a))
 (eitherMap a b)=(if car-b (RIGHT (a cdr-b)) (0 cdr-b))
 (rexGetWord a b c)=(switch (idx:0 a) 0 (R5 b (c (idx:1 a)) b b b))
 
@@ -1580,7 +1580,7 @@
 @ c
    | LEFT
    | R2 a
-      '''Tab-Binder must have form {= k} or {= k v}
+      '''Tab-Binder must have form (= k) or (= k v)
 | switch (len (mergeHeir (idx:2 a) (idx:3 a))) c
 | R3 c
    @ d (LEFT 'Expected a word in Tab-Binder key')
@@ -1782,7 +1782,7 @@
 | if car-b (RIGHT (listToRowReversed cdr-b)) b
 
 (listUnsafeHead a)=(listSafeHead:0)
-{0}=(b#'(= (showRex expr))(! rexCase expr (& (r x k))(@ hed (barConcat)(,, (# b "("))(,, (barIntercalate (# b " "))(if (eql r "|") (- map showRex x))(weld (, (- natBar r)) (- map showRex x)))(,, (# b ")")))(if (eql k 0) hed)(barWeld hed (- showRex k)) (& name (natBar name)) (& cord (barConcat (, (# b """) (- natBar cord) (# b """)))) (& page (showRex (TEXT (- cordConcat page)))) (& cnst (showRex (- valRex cnst))))')
+(| 0)=(b#'(= (showRex expr))(! rexCase expr (& (r x k))(@ hed (barConcat)(,, (# b "("))(,, (barIntercalate (# b " "))(if (eql r "|") (- map showRex x))(weld (, (- natBar r)) (- map showRex x)))(,, (# b ")")))(if (eql k 0) hed)(barWeld hed (- showRex k)) (& name (natBar name)) (& cord (barConcat (, (# b """) (- natBar cord) (# b """)))) (& page (showRex (TEXT (- cordConcat page)))) (& cnst (showRex (- valRex cnst))))')
 (fullInspection a)=(b @ inspect-a)(if isNat-b b map-fullInspection-b)
 (eitherCaseLeft a b c)=(if car-a (b cdr-a) (c cdr-a))
 (eitherOpenLeft a b)=(if car-a a (b cdr-a))

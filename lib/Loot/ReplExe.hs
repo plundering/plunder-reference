@@ -35,7 +35,7 @@ main = colorsOnlyInTerminal do
     modifyIORef' P.state \st -> st { P.stFast = P.jetMatch }
 
     filz <- fmap unpack <$> getArgs
-    vEnv <- newIORef (mempty :: Map Symb Pln)
+    vEnv <- newIORef (mempty :: Map Symb Fan)
     for_ filz (\p -> replFile p (runBlock stdout False vEnv))
     welcome stdout
     replStdin (runBlock stdout True vEnv)
@@ -72,7 +72,7 @@ replErr = throw . REPL_ERR
 
 runBlock
     :: RexColor
-    => Handle -> Bool -> IORef (Map Symb Pln) -> Block -> IO ()
+    => Handle -> Bool -> IORef (Map Symb Fan) -> Block -> IO ()
 runBlock h okErr vEnv (BLK _ _ eRes) = do
     let onErr (REPL_ERR txt) = showError stderr okErr txt
     handle onErr do
@@ -102,7 +102,7 @@ showPin self _pinKey =
              (\vl2 -> absurd<$>(N SHUT_INFIX "=" [parens [keyRex self], joinRex vl2] Nothing))
              (\vl2 -> absurd<$>(N OPEN       "=" [parens [keyRex self]] (Just $ joinRex vl2)))
 
-plunRex :: Pln -> Rex
+plunRex :: Fan -> Rex
 plunRex pln = joinRex $ valRex (resugarVal mempty val)
   where
     clz = loadShallow pln
@@ -129,7 +129,7 @@ chooseMode vr@_                       wide _    = wide vr
 
 printValue
     :: RexColor
-    => Handle -> Bool -> Maybe Symb -> Pln -> IO ()
+    => Handle -> Bool -> Maybe Symb -> Fan -> IO ()
 printValue h shallow mBinder vl = do
     let clz = (if shallow then loadShallow else loadClosure) vl
     hPutStrLn h $ showClosure mBinder clz
@@ -158,7 +158,7 @@ cab = utf8Nat "_"
 
 resolveWith
     :: (Show k, Ord k, Traversable f)
-    => IORef (Map k Pln) -> f k -> IO (f Pln)
+    => IORef (Map k Fan) -> f k -> IO (f Fan)
 resolveWith vEnv obj = do
     env <- readIORef vEnv
     for obj (\k -> maybe (onErr k) pure (lookup k env))
@@ -167,14 +167,14 @@ resolveWith vEnv obj = do
 
 runCmd
     :: RexColor
-    => Handle -> IORef (Map Symb Pln) -> Cmd Pln Symb Symb -> IO ()
+    => Handle -> IORef (Map Symb Fan) -> Cmd Fan Symb Symb -> IO ()
 runCmd h vEnv =
     go
   where
-    resolve :: Traversable f => f Symb -> IO (f Pln)
+    resolve :: Traversable f => f Symb -> IO (f Fan)
     resolve = resolveWith vEnv
 
-    go :: Cmd Pln Symb Symb -> IO ()
+    go :: Cmd Fan Symb Symb -> IO ()
 
     go (DEFINE ds) = do
         for_ ds \case
@@ -234,7 +234,7 @@ instance Show Refr where
 
 -- Plun Printer ----------------------------------------------------------------
 
-showPlun :: Pln -> Text
+showPlun :: Fan -> Text
 showPlun =
     let ?rexColors = NoColors
     in showClosure Nothing . loadShallow

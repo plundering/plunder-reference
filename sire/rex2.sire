@@ -1,0 +1,124 @@
+;;;
+;;; This is how Sire represents Rex nodes for the purposes of macro-expansion
+;;;
+;;; The reason why we wrap these nodes in 'R' functions is so that
+;;; implementations can data-jet them.  This is an informal datajet that
+;;; is not required by all implementations.
+;;;
+;;; The data jetting of Rex nodes shouldn't have much effect on impact
+;;; performance within Plunder.  However, a native implementation
+;;; of Sire used for bootstrapping can benefit greatly.  Without this
+;;; datajet, every macroexpansion reqires two complete copies of the
+;;; entire subtree under expansionentire subtree under expansion.
+;;; This tree must be copied from the host heap to the Plunder heap,
+;;; and back.
+;;;
+;;; That's annoyingly expensive, so this is an optional hack to remove
+;;; that overhead.
+;;;
+;;; TODO Reconsider `s/law/fun/`.  I'm not loving it.
+;;;
+
+/+  prim   (apply isNat isFun funName funArgs cdr K)
+/+  bool   (if or)
+/+  cord   (cordWeld cordCat cordToRow)
+/+  either (LEFT RIGHT eitherCase eitherOpen)
+/+  eql    (eql neq)
+/+  list   (NIL CONS listCase listToRowReversed listFromRow digits)
+/+  row    (len idx has all isRow)
+/+  row    (weld switch zipWith map turn rowApply rowAnd)
+/+  row    (",")
+/+  hax    ("#")
+/+  bar    ("#b" barCat barHas)
+/+  com    (",,")
+
+
+;;;;;;;;;;;;;;;;;;
+;; Constructors ;;
+;;;;;;;;;;;;;;;;;;
+
+mkRex=(0 %R 1)
+
+nodeStyles=[%open %nesp %nesi %shup %shui]
+leafStyles=[%word %cord %tape %line %page]
+
+(LEAF numb heir style)=(mkRex [0 numb heir style])
+(NODE rune kids heir style)=(mkRex [1 rune kids heir style])
+(EBED valu)=(mkRex [2 valu])
+
+(WORD numb heir)=(LEAF numb heir %word)
+(CORD numb heir)=(LEAF numb heir %cord)
+(TAPE numb heir)=(LEAF numb heir %tape)
+(LINE numb heir)=(LEAF numb heir %line)
+(PAGE numb heir)=(LEAF numb heir %page)
+
+(OPEN rune kids heir)=(NODE rune kids heir %open)
+(NESP rune kids heir)=(NODE rune kids heir %nesp)
+(NESI rune kids heir)=(NODE rune kids heir %nesi)
+(SHUP rune kids heir)=(NODE rune kids heir %shup)
+(SHUI rune kids heir)=(NODE rune kids heir %shui)
+
+
+;;;;;;;;;;;;;;
+;; Matching ;;
+;;;;;;;;;;;;;;
+
+= (rexCase rex leaf node ebed)
+| switch idx-0-rex 0
+,, ! leaf idx-1-rex idx-2-rex idx-3-rex
+,, ! node idx-1-rex idx-2-rex idx-3-rex idx-4-rex
+,, ! ebed idx-1-rex
+
+
+;;;;;;;;;;;;;;;;
+;; Validation ;;
+;;;;;;;;;;;;;;;;
+
+runeChars=(b#"$!#%&*+,-./:<=>?@\^`|~")
+
+= wordChars
+| barCat
+,, b#"_"
+,, b#"abcdefghijklmnopqrstuvwxyz"
+,, b#"ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+,, b#"0123456789"
+
+(isRuneChar c)=(barHas c runeChars)
+(isWordChar c)=(barHas c wordChars)
+
+= (isRex rex)
+@ onLeaf
+    & (numb heir style)
+    | rowAnd
+    ,, isNat numb
+    ,, or (eql 0 heir) (isRex heir)
+    ,, has style leafStyles
+    ,, or (neq style %word) (neq numb 0)
+    ,, or (neq style %word) (all isWordChar cordToRow-numb)
+@ onNode
+    & (rune kids heir style)
+    | rowAnd
+    ,, isNat rune
+    ,, neq 0 rune
+    ,, all isRuneChar (cordToRow rune)
+    ,, isRow kids
+    ,, all isRex kids
+    ,, or (eql 0 heir) (isRex heir)
+    ,, has style nodeStyles
+| rowAnd
+,, isFun rex
+,, eql %R funName-rex
+,, eql 1    funArgs-rex
+,, rexCase cdr-rex onLeaf onNode (K 1)
+
+
+;;;;;;;;;;;;;
+;; Exports ;;
+;;;;;;;;;;;;;
+
+^-^ LEAF NODE EBED
+^-^ WORD CORD TAPE LINE PAGE OPEN NESP NESI SHUP SHUI
+^-^ rexCase
+^-^ isWordChar isRuneChar
+^-^ isRex
+;;; "`"

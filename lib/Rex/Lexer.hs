@@ -88,12 +88,14 @@ cord :: Parser (Bool, Text)
 cord = ((True,)  <$> cord' '"')
    <|> ((False,) <$> cord' '\'')
 
-para :: Parser Nest
-para = do
-    (pal >> spc0 >> boot) >>= \case
-        []        -> pure (PREFX "|" [])
-        [Right f] -> pure (WRAPD f)
-        is        ->
+-- Parenthesis body in infix mode.  Occurs after initial form.
+plix :: Char -> Form -> Parser Nest
+plix endChar initialForm = do
+    fart (Right initialForm) >>= \case
+        []        -> error "impossible"
+        Left{}:_  -> error "impossible"
+        [Right i] -> pure (WRAPD i)
+        is ->
           case unravel [] is of
               ([f], [])             -> pure (WRAPD f)
               (fs,  [])             -> pure (PAREN fs)
@@ -101,12 +103,16 @@ para = do
                   assertUnambiguous "Nest" (run :| fmap fst more)
                   pure $ INFIX run (fs : gs : fmap snd more)
   where
-    (pal, par) = ( char '(' , char ')' )
+
     mixy = do { r <- try (rune <* whyt) ; (Left r :) <$> faro }
-    term = par $> []
-    boot = term <|> faro
+
+    term = char endChar $> []
+
     faro = do
-        i  <- Right <$> form
+        i <- Right <$> form
+        fart i
+
+    fart i = do
         is <- term <|> mixy <|> (whyt >> (term <|> mixy <|> faro))
         pure (i:is)
 
@@ -122,6 +128,40 @@ para = do
         Left  r : is -> (reverse ws, ravel r [] is)
         Right w : is -> unravel (w:ws) is
 
+-- Body of parenthesis in prefix mode, after initial (rune+space)
+pree :: Char -> Text -> Parser Nest
+pree endChar initialRune = do
+    fs <- end <|> frags
+    pure (unravel initialRune [] fs)
+  where
+    end = [] <$ char endChar
+
+    frags = (:) <$> frog <*> (end <|> do{whyt; end <|> frags})
+
+    unravel roon ns = \case
+        []           -> PREFX roon $ reverse ns
+        Right w : is -> unravel roon (w:ns) is
+        Left r : is  -> let deep = nestForm(unravel r [] is)
+                        in PREFX roon (reverse(deep:ns))
+
+    -- This is the same as `frag` but does not accept pages.
+    frog :: Parser (Either Text Form)
+    frog = (rinse <$> rune <*> optional form)
+       <|> (Right <$> form)
+
+    rinse :: Text -> Maybe Form -> Either Text Form
+    rinse r = maybe (Left r) (Right . BEFO r)
+
+para :: Char -> Char -> Parser Nest
+para startChar endChar = do
+    char startChar
+    spc0
+    asum [ char endChar $> PREFX "|" []
+         , try (rune <* char endChar) >>= (pure . flip PREFX [])
+         , try (rune <* whyt) >>= pree endChar
+         , form >>= plix endChar
+         ]
+
 rune :: Parser Text
 rune = pack <$> some runic
 
@@ -129,7 +169,7 @@ runic :: Parser Char
 runic = label "runic" (satisfy isRuneChar)
 
 nest :: Parser Nest
-nest = brak <|> curl <|> para
+nest = brak <|> curl <|> para '(' ')'
 
 leaf :: Parser Leaf
 leaf = (uncurry C <$> cord) <|> (N <$> name)
@@ -138,32 +178,16 @@ nestForm :: Nest -> Form
 nestForm n = SHIP (NEST n :| [])
 
 curl :: Parser Nest
-curl = ravel <$> (char '{' >> spc0 >> (empt <|> brok))
-  where
-    empt = [] <$ char '}'
-
-    brok = (:) <$> frog <*> (empt <|> do{whyt; empt <|> brok})
-
-    unravel roon ns = \case
-        []          -> PREFX roon $ reverse ns
-        Left r : is -> PREFX roon $ reverse (nestForm(unravel r [] is) : ns)
-        Right w : is -> unravel roon (w:ns) is
-
-    ravel frags =
-        case frags of
-           Left r : is -> unravel r   [] is
-           is          -> unravel "|" [] is
-
--- This is the same as `frag` but does not accept pages.
-frog :: Parser (Either Text Form)
-frog = (rinse <$> rune <*> optional form)
-   <|> (Right <$> form)
-  where
-    rinse :: Text -> Maybe Form -> Either Text Form
-    rinse r = maybe (Left r) (Right . BEFO r)
+curl = do
+    res <- para '{' '}'
+    pure (WRAPD $ BEFO "#" $ nestForm res)
 
 brak :: Parser Nest
-brak = char '[' >> spc0 >> (PREFX "," <$> (empt <|> carl))
+brak = do
+    char '['
+    spc0
+    items <- (empt <|> carl)
+    pure (PREFX "," items)
   where
     empt = [] <$ char ']'
     carl = (:) <$> form <*> (empt <|> (do whyt; empt <|> carl))

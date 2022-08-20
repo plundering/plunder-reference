@@ -54,11 +54,12 @@ where
 import Loot.Types
 import PlunderPrelude
 import Rex
+import Rex.Lexer (isRuneChar)
 
 import Data.ByteString.Builder (byteStringHex, toLazyByteString)
 import Data.Char               (isAlphaNum, isPrint)
 import Data.Text.Encoding      (decodeUtf8')
-import Plun.Types              (lawNameText)
+import Plun                    (lawNameText)
 
 import qualified Data.ByteString.Base16 as B16
 import qualified Data.Char              as C
@@ -138,12 +139,18 @@ natBox :: Nat -> Box
 natBox n =
   case natUtf8 n of
     Left _                                   -> nameBox (tshow n)
-    Right s | n < 256                        -> nameBox (tshow n)
-            | all isNameChar s && length s>1 -> cenBox s
+    Right s | n==0                           -> nameBox "0"
+            | all trivialChr s && length s>0 -> cenBox s
+            | all isNameChar s && length s>0 -> textBox THIN_CORD s
+            | all isRuneChar s && length s>0 -> textBox THIN_CORD s
+            | n<256                          -> nameBox (tshow n)
             | isLineStr s                    -> textBox THIN_LINE s
             | isBlocStr s                    -> pageBox THIN_LINE (T.lines s)
             | otherwise                      -> nameBox (tshow n)
   where
+    trivialChr '_' = True
+    trivialChr c   = C.isAlpha c
+
     isOkPrint '\n' = False
     isOkPrint '\t' = False
     isOkPrint c    = isPrint c
@@ -180,7 +187,7 @@ valBox = \case
     XVLAW l   -> lawBox l
     XVBAR b   -> barBox b
     XVROW r   -> rowBox r
-    XVCOW n   -> nameBox ("R" <> tshow n)
+    XVCOW n   -> nameBox ("C" <> tshow n)
     XVTAB t   -> tabBox t
     XVCAB k   -> cabBox k
 
@@ -188,7 +195,6 @@ valBoxes :: XVal -> [Box]
 valBoxes = \case
     XVAPP f x -> valBox <$> unCell [x] f
     v         -> [valBox v]
-
 
 rowBox :: Vector XVal -> Box
 rowBox row =
@@ -566,7 +572,7 @@ boxCont = box . forceBoxOpen
 
 bodApply :: [XBod] -> Box
 bodApply exprs =
-    case (sum widths < 60, reverse boxes) of
+    case (sum widths < 40, reverse boxes) of
       (True, _)    -> boxApply boxes
       (False, oll) -> case span (\x -> boxWidth x < 10) oll of
                           ([], _) -> boxApply boxes
@@ -596,9 +602,18 @@ boxApply boxes =
     barSz = 1 + length boxes + sum (boxWidth<$>boxes)
 
     (siz, wid) =
-        if all simple rexz
-        then (hepSz, N SHUT_INFIX  "-" rexz Nothing)
-        else (barSz, N NEST_PREFIX "|" rexz Nothing)
+        case rexz of
+          [f,_] | isPrim f ->
+               (hepSz, N SHUT_INFIX  "-" rexz Nothing)
+          _ | all simple rexz ->
+               (hepSz, N SHUT_INFIX  "-" rexz Nothing)
+          _ ->
+               (barSz, N NEST_PREFIX "|" rexz Nothing)
+
+    isPrim (T BARE_WORD "0" Nothing) = True
+    isPrim (T BARE_WORD "1" Nothing) = True
+    isPrim (T BARE_WORD "2" Nothing) = True
+    isPrim _                         = False
 
     simple (T BARE_WORD _ Nothing) = True
     simple _                       = False
@@ -867,10 +882,10 @@ rForm1Nc r x y k = rune r >> form1Nc x y >>= \(a,bs) -> pure (k a bs)
 
 
 readCow :: Red v Nat
-readCow = matchLeaf "R[0-9]+" \case
-    (BARE_WORD, "R0") -> Just 0
+readCow = matchLeaf "C[0-9]+" \case
+    (BARE_WORD, "C0") -> Just 0
 
-    (BARE_WORD, (unpack -> ('R' : n : ns))) -> do
+    (BARE_WORD, (unpack -> ('C' : n : ns))) -> do
         guard (all C.isDigit (n:ns))
         guard (n /= '0')
         readMay (n:ns)

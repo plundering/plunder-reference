@@ -18,10 +18,10 @@ Inlining
 
 TODO: Implement inlining
 
--   Given a function to inline: (Fun Pln Refr Pln)
--   Given an array of arguments: (Vector (Exp Pln Refr Pln))
+-   Given a function to inline: (Fun Fan Refr Fan)
+-   Given an array of arguments: (Vector (Exp Fan Refr Fan))
 -   Presuming that the number of arguments matches the function arity.
--   Return (Exp Pln Refr Pln)
+-   Return (Exp Fan Refr Fan)
 -   Each function argument becomes a let bindings.
 -   Function body simply becomes let-binding body.
 
@@ -41,7 +41,7 @@ TODO: Implement inline binders.
 
 -   Something like [! f x]=(x x)
 -   Same behavior as [f x]=(x x)
--   (Fun Pln Refr Pln) added to "inline table".
+-   (Fun Fan Refr Fan) added to "inline table".
 -   A compiler pass recognizes application to inline binder, and replaces
     it with explicit inline-application.
 
@@ -55,7 +55,7 @@ TODO: Implement compile-time-lambda binders.
 
 -   Something like [: f x]=(x x)
 -   Same behavior as [f x]=(x x)
--   (Fun Pln Refr Pln) added to "static-lambda table".
+-   (Fun Fan Refr Fan) added to "static-lambda table".
 -   A compiler pass recognizes application to inline binder, and replaces
     it with explicit compiler-time-application of normal lambda.
 
@@ -103,7 +103,8 @@ import Loot.Syntax (readIdnTxt, readKey, readSymb, readBymb)
 import Loot.Syntax (readArgs, readSigy)
 import Loot.Syntax (readNat)
 import Loot.Syntax (readXTag, simpleTag)
-import Loot.Syntax (rForm1Nc, rFormNc)
+-- ort Loot.Syntax (rForm1Nc, rFormNc)
+import Loot.Syntax (rForm1Nc)
 import Loot.Syntax (rForm2c, rForm1, rForm1c, rFormN1c, rForm3c)
 import Sire.Macro  (rexVal, loadRex, loadRow)
 import Plun.Print  (dent)
@@ -117,8 +118,8 @@ import qualified Loot.ReplExe as Loot
 
 data MacroEnv = MacroEnv
     { meGenSymState :: IORef Nat
-    , meGlobalScope :: Pln
-    , meMacros      :: Map Text Pln
+    , meGlobalScope :: Fan
+    , meMacros      :: Map Text Fan
     }
 
 type MacroExpander v
@@ -130,14 +131,7 @@ type MacroExpander v
 
 type HasMacroEnv = (?macros :: MacroEnv)
 
-type Red = ReadT Pln IO
-
-
--- Printing --------------------------------------------------------------------
-
-eapp :: (XExp, [XExp]) -> XExp
-eapp (f,[])   = f
-eapp (f,x:xs) = eapp (EAPP f x, xs)
+type Red = ReadT Fan IO
 
 
 -- Parsing ---------------------------------------------------------------------
@@ -149,7 +143,7 @@ rexCmd rex =
   preProcess :: Rex -> GRex v
   preProcess = rewriteLeafJuxtaposition . fmap absurd
 
-  load :: GRex Pln -> Either Text XCmd
+  load :: GRex Fan -> Either Text XCmd
   load = Loot.resultEitherText dropEmbed rex
        . runReading readCmd
 
@@ -169,7 +163,7 @@ rewriteLeafJuxtaposition = go
       N m r p k      -> N m r (go <$> p) (go <$> k)
       C x k          -> C x (go <$> k)
 
-runReading :: Red a -> GRex Pln -> Result Pln a
+runReading :: Red a -> GRex Fan -> Result Fan a
 runReading act = unsafePerformIO . runResultT . runReadT act
 
 withRex :: Red v -> Red (Rex, v)
@@ -222,6 +216,17 @@ readCmd = asum
     , SAVEV <$> (rForm1 "<<" readExpr id)
     , rForm1c "#?" readExpr EPLOD
     , OUTPUT <$> readExpr
+    , do rune "!*!"
+         fmap EFFECT $ asum $
+             [ KAL_LIST_REQUESTS <$ form0
+             , KAL_CANCEL_REQUEST <$> form1 readKey
+             , uncurry KAL_MAKE_REQUEST <$> form2 readKey readExpr
+             ]
+    , do rune "?*?"
+         fmap EFFECT $ asum $
+             [ KAL_LIST_RESPONSES <$ form0
+             , KAL_DELETE_RESPONSE <$> form1 readKey
+             ]
     ]
   where
     readDefine = do
@@ -237,13 +242,13 @@ readCmd = asum
 
 -- Functions -------------------------------------------------------------------
 
--- rexPlnRex :: RexColor => GRex Pln -> GRex v
--- rexPlnRex = fmap absurd
+-- rexFanRex :: RexColor => GRex Fan -> GRex v
+-- rexFanRex = fmap absurd
           -- . Loot.joinRex
           -- . fmap Loot.plunRex
 
-valPlnRex :: RexColor => Val Pln -> GRex v
-valPlnRex = fmap absurd
+valFanRex :: RexColor => Val Fan -> GRex v
+valFanRex = fmap absurd
           . Loot.joinRex
           . Loot.valRex
           . Loot.resugarVal mempty
@@ -251,7 +256,7 @@ valPlnRex = fmap absurd
 
 -- TODO Better to just use a parameter instead of IO monad?
 -- TODO This is non-generic now, can we just collapse all this complexity?
-runMacro :: HasMacroEnv => MacroExpander Pln -> Red XExp
+runMacro :: HasMacroEnv => MacroExpander Fan -> Red XExp
 runMacro macro = do
     (xs, mK) <- readNode
     let MacroEnv{..} = ?macros
@@ -287,8 +292,6 @@ readExpr = do
                  , either ECAB ETAB <$> readTab readExpr EREF
                  ]
         , ENAT <$> readNat
-        , Loot.readCow <&> \case 0 -> EVEC mempty
-                                 n -> ECOW n
         , EREF <$> readSymb
         , rFormN1c "."   readExpr readExpr          appTo
         , rForm3c  "@@"  readSymb readExpr readExpr EREC
@@ -302,10 +305,6 @@ readExpr = do
         , rForm1Nc "-"   readExpr readExpr          apple
         , rForm3c  "@"   readSymb readExpr readExpr ELET
         , rForm1Nc "!"   readExpr readExpr          mkInline
-        , rFormNc  ","   readExpr                   EVEC
-        , do rune ",,"
-             sequ <- slip1N ",," readExpr readExpr
-             pure $ EVEC $ fromList $ fmap eapp sequ
         ]
 
     apple f []    = f
@@ -365,7 +364,7 @@ readTab ele var = do
 -- Macros ----------------------------------------------------------------------
 
 -- TODO This can be massivly simplified.
-plunderMacro :: Pln -> MacroExpander Pln
+plunderMacro :: Fan -> MacroExpander Fan
 plunderMacro macroLaw macEnv nex xs mK = do
     let vs  = ROW $ fromList (rexVal <$> xs)
     let kv  = maybe (NAT 0) rexVal mK
@@ -382,31 +381,31 @@ plunderMacro macroLaw macEnv nex xs mK = do
 
 loadMacroExpansion
     :: RexColor
-    => Val Pln
-    -> Either (GRex Pln, Text) (Nat, GRex Pln)
+    => Val Fan
+    -> Either (GRex Fan, Text) (Nat, GRex Fan)
 loadMacroExpansion topVal = case topVal of
     APP (NAT 0) errRow ->
         case loadRow errRow of
             Left (val, le) ->
-                Left (valPlnRex val, loadErr errRow "error context" le)
+                Left (valFanRex val, loadErr errRow "error context" le)
             Right [errExp, NAT err] -> do
                 case (loadRex valPlun errExp, natUtf8Exn err) of
-                    (Left (val, _le), ctx) -> Left (valPlnRex val, ctx)
+                    (Left (val, _le), ctx) -> Left (valFanRex val, ctx)
                     (Right rez, errMsg)   -> Left (rez, errMsg)
                     -- TODO handle invalid error strings more carefully.
             _ -> topBad
     APP (NAT 1) expRow ->
         case loadRow expRow of
             Left (val, le) ->
-                Left (valPlnRex val, loadErr expRow "result" le)
+                Left (valFanRex val, loadErr expRow "result" le)
             Right [NAT used, body] -> do
                 case (loadRex valPlun body) of
-                    Left (val, err) -> Left (valPlnRex val, err)
+                    Left (val, err) -> Left (valFanRex val, err)
                     Right rez -> Right (used, rez)
             _ -> topBad
     _ -> topBad
   where
-    loadErr :: Val Pln -> Text -> Text -> Text
+    loadErr :: Val Fan -> Text -> Text -> Text
     loadErr _val ctx expect = concat
         [ "Error when loading "
         , ctx
@@ -418,7 +417,7 @@ loadMacroExpansion topVal = case topVal of
         unlines
             (["Invalid macro expansion.  Expected " <> expr] <> expLn)
 
-    topBad = Left (valPlnRex topVal, bad "one of:" shapes)
+    topBad = Left (valFanRex topVal, bad "one of:" shapes)
       where
         shapes =
             [ ""

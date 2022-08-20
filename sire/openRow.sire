@@ -1,16 +1,23 @@
+/+  prim    (die trk trkVal)
 /+  either  (LEFT RIGHT eitherOpen)
 /+  nat     (add gte)
-/+  bool    (if ifNot not and or F)
+/+  bool    (if ifNot not and or false)
 /+  eql     (eql neq)
 /+  row     (len idx map all)
+/+  row     (",")
 /+  list    (listFromRow listCase listZip listEnumFrom)
-/+  cord    (explode isDigit isAlpha cordWeld)
+/+  cord    (cordToRow isDigit isAlpha cordWeld)
 
-/+  macro   (mergeHeir cnsE rexGetWord rexGetNode rexCase)
-/+  macro   (eitherRowTraverse gensymMacro)
-/+  macro   (gensymE letE varE WORD appE natE NODE)
+/+  rex     (rexGetWord rexGetNode rexCase)
+/+  rex     (mergeHeir)
+
+/+  macro   (gensymMacro gensymE)
+/+  rex     (WORD NODE)
+/+  sire    (cnsE letE varE appE natE)
+/+  sire    (eitherRowTraverse)
 
 /+  hax     ("#")
+/+  com     (",,")
 
 
 ;;;;;;;;;;;;;;;;;;;;;
@@ -23,8 +30,8 @@
      isDigit-c
 
 = (okaySymbol cord)
-| if (eql 0 cord) F
-@ chars explode-cord
+| if (eql 0 cord) false
+@ chars cordToRow-cord
 @ c0 idx-0-chars
 | and (not isDigit-c0)
 | all okaySymbolChar chars
@@ -37,13 +44,12 @@
 
 ; readRowOfName :: Text -> Rex -> Either (Rex, Text) [Text]
 = (readRowOfNames ctx rex)
-; trk %[=ctx =rex]
+; trkVal [%readRowOfNames %[=ctx =rex]]
 @ err
-   | LEFT
-   , rex
-   | cordWeld ctx
-   | " pattern must be a symbol (x) or a row of: (x,y,z)"
-; trk %[=err]
+    | LEFT
+    , rex
+    | cordWeld ctx
+    | " pattern must be a symbol (x) or a row of: (x,y,z)"
 ! rexCase rex
          & (rune kids heir)
          ; trk [%node %[=rune =kids =heir]]

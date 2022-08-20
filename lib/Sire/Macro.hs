@@ -21,13 +21,13 @@ cordV = NAT . utf8Nat
 rowV :: [Val v] -> Val v
 rowV = ROW . fromList
 
-loadRow :: Val Pln -> Either (Val Pln, Text) [Val Pln]
+loadRow :: Val Fan -> Either (Val Fan, Text) [Val Fan]
 loadRow (ROW r) = Right (toList r)
 loadRow vl      = Left (vl, "row")
 
 -- Macros ----------------------------------------------------------------------
 
-loadRex :: (Val Pln -> Pln) -> Val Pln -> Either (Val Pln, Text) (GRex Pln)
+loadRex :: (Val Fan -> Fan) -> Val Fan -> Either (Val Fan, Text) (GRex Fan)
 loadRex putVal =
     \node -> loadRow node >>= loadRexRow node
   where
@@ -39,7 +39,7 @@ loadRex putVal =
     loadCord (NAT (natUtf8 -> Right n)) = Right n
     loadCord vl                         = Left (vl, "cord")
 
-    loadRexRow :: Val Pln -> [Val Pln] -> Either (Val Pln, Text) (GRex Pln)
+    loadRexRow :: Val Fan -> [Val Fan] -> Either (Val Fan, Text) (GRex Fan)
     loadRexRow node = \case
         [NAT 0, r, x] -> loadRexRow node [NAT 0, r, x, NAT 0]
         [NAT 1, n]    -> loadRexRow node [NAT 1, n, NAT 0]
@@ -65,7 +65,7 @@ loadRex putVal =
     loadCont mkv     = Just <$> recur mkv
 
 
-rexVal :: GRex Pln -> Val Pln
+rexVal :: GRex Fan -> Val Fan
 rexVal = \case
     N _ rn xs Nothing      -> rowV[NAT 0, cordV rn, rowV(rexVal<$>xs)]
     T BARE_WORD n Nothing  -> rowV[NAT 1, cordV n]

@@ -16,12 +16,8 @@ Here are the rules we use to resolve this problem:
 
 -   First, we map every tag to an initial name:
 
-    -   If a rule is a vector constructor (Having the noun `(1 (4+1)
-        "ROW" 0)`), then we assign the name `V4`.
-
-    -   If a rule is a a valid record constructor (Having the noun-form
-        `(1 (4+1) "ROW" {"a" "b" "c" "d"})` where the keys are valid
-        identifiers, then we assign the initial name `V4-a-b-c-d`
+    -   If a rule is a vector constructor (Having the noun `(0 0 5 0)`),
+        then we assign the name `V4`.
 
 -   Second, we expect all tags to be valid identifiers [IDN]. (Note that
     rule identifiers may not contain `_`)
@@ -64,14 +60,14 @@ module Loot.Backend
     , valBod
     , bodVal
     , optimizeRul
-    , Pln
+    , Fan
     , plunSave
     , plunLoad
     , valPlun
     , plunVal
     , loadClosure
     , loadShallow
-    , isPlnCodeShaped
+    , isFanCodeShaped
     , isValCodeShaped
     )
 where
@@ -85,14 +81,14 @@ import Control.Monad.State  (State, evalState, runState, get, put)
 import Data.Vector          ((!))
 import Jar                  (capBSExn)
 import Loot                 (keyRex)
-import Plun                 (pattern AT, (%%), Pln(PLN))
-import Plun.Types           (pattern (:#), pattern (:&), Pin(..))
+import Plun                 ((%%), Fan, Pin(..))
 import Rex.Print            (RexColorScheme(NoColors), rexLine)
+
+import qualified Plun as P
 
 -- ort qualified Data.Char   as C
 -- ort qualified Data.Text   as T
 import qualified Data.Vector as V
-import qualified Plun      as P
 
 --------------------------------------------------------------------------------
 
@@ -122,10 +118,10 @@ data NamedClosure = NAMED_CLOSURE
     }
   deriving (Show, Generic, NFData)
 
-rulePlunRaw :: Rul Pln -> Pln
+rulePlunRaw :: Rul Fan -> Fan
 rulePlunRaw = valPlun . rulVal
 
-rulePlunOpt :: Rul Pln -> Pln
+rulePlunOpt :: Rul Fan -> Fan
 rulePlunOpt = valPlun . rulVal . optimizeRul
 
 rulVal :: Rul a -> Val a
@@ -157,11 +153,11 @@ zeroArgRule bd =
 {-
     Removes extraneous CNS
 -}
-optimizeRul :: Rul Pln -> Rul Pln
+optimizeRul :: Rul Fan -> Rul Fan
 optimizeRul (RUL nm ar bd) =
     RUL nm ar (go ar bd)
   where
-    go :: Nat -> Bod Pln -> Bod Pln
+    go :: Nat -> Bod Fan -> Bod Fan
     go maxArg = \case
         BLET v b -> BLET (go (maxArg+1) v) (go (maxArg+1) b)
         BAPP f x -> BAPP (go maxArg f) (go maxArg x)
@@ -173,7 +169,7 @@ optimizeRul (RUL nm ar bd) =
 -- (0 f x)
 -- (1 v b)
 -- (2 c)
-isValCodeShaped :: Nat -> Val Pln -> Bool
+isValCodeShaped :: Nat -> Val Fan -> Bool
 isValCodeShaped maxArg = loop
   where
     loop = \case
@@ -291,43 +287,44 @@ assignNames initialNms =
 
 type Load = State (Int, Map ByteString Int, [(Pin, Maybe (Val Int))])
 
-valPlun :: Val Pln -> Pln
-valPlun (NAT a)          = AT a
+valPlun :: Val Fan -> Fan
+valPlun (NAT a)          = P.NAT a
 valPlun (REF v)          = v
 valPlun (APP f x)        = valPlun f %% valPlun x
-valPlun (BAR b)          = P.mkBar b
-valPlun (ROW r)          = P.mkRow (toList $ valPlun <$> r)
+valPlun (BAR b)          = P.BAR b
+valPlun (ROW r)          = P.ROW (valPlun <$> r)
 valPlun (LAW n a b)      = P.mkLaw n a (valPlun $ bodVal b)
-valPlun (COW 0)          = P.nodVal $ P.DAT $ P.ROW mempty
-valPlun (COW n)          = P.nodVal $ P.DAT $ P.COW n
-valPlun (TAB t)          = P.nodVal $ P.DAT $ P.TAB $ fmap valPlun t
-valPlun (CAB k) | null k = P.nodVal $ P.DAT $ P.TAB mempty
-valPlun (CAB k)          = P.nodVal $ P.DAT $ P.CAB k
+valPlun (COW 0)          = P.ROW mempty
+valPlun (COW n)          = P.COW n
+valPlun (TAB t)          = P.TAB $ fmap valPlun t
+valPlun (CAB k) | null k = P.TAB mempty
+valPlun (CAB k)          = P.CAB k
 
-plunAlias :: Pln -> Maybe (Val Pln)
-plunAlias (PLN _ (P.DAT P.PIN{})) = Nothing
-plunAlias (PLN _ topNod)  = Just (nod topNod)
+plunAlias :: Fan -> Maybe (Val Fan)
+plunAlias P.PIN{} = Nothing
+plunAlias topNod  = Just (go topNod)
   where
-    go (PLN _ n) = nod n
-    nod = \case
-        P.NAT a           -> NAT a
-        n@(P.DAT P.PIN{}) -> REF (P.nodVal n)
-        P.DAT (P.BAR b)   -> BAR b
-        P.DAT (P.ROW r)   -> ROW (go <$> r)
-        P.DAT (P.TAB t)   -> TAB (go <$> t)
-        P.DAT (P.COW n)   -> COW n
-        P.DAT (P.CAB n)   -> CAB n
-        P.APP f x         -> APP (nod f) (go x)
-        P.FUN P.L{..}     -> LAW lawName lawArgs (valBod lawArgs $ go lawBody)
+    go = \case
+        P.NAT a   -> NAT a
+        n@P.PIN{} -> REF n
+        P.BAR b   -> BAR b
+        P.ROW r   -> ROW (go <$> r)
+        P.TAB t   -> TAB (go <$> t)
+        P.COW n   -> COW n
+        P.CAB n   -> CAB n
+        v@P.KLO{} -> let (h,t) = P.boom v in APP (go h) (go t)
+        P.FUN l   -> LAW (P.lawName l)
+                         (P.lawArgs l)
+                         (valBod (P.lawArgs l) $ go (P.lawBody l))
 
-loadShallow :: Pln -> Closure
+loadShallow :: Fan -> Closure
 loadShallow inVal =
     let (top, (_,_,stk)) = runState (goTop inVal) (0, mempty, [])
     in CLOSURE (fromList $ reverse stk) top
   where
-    goTop :: Pln -> Load (Val Int)
-    goTop (PLN _ (P.DAT (P.PIN i))) = REF <$> goTopPin i
-    goTop vl                        = go vl
+    goTop :: Fan -> Load (Val Int)
+    goTop (P.PIN i) = REF <$> goTopPin i
+    goTop vl        = go vl
 
     goTopPin :: P.Pin -> Load Int
     goTopPin pin@P.P{..} = do
@@ -337,20 +334,19 @@ loadShallow inVal =
         put (nex+1, tab', kor:stk)
         pure nex
 
-    go :: Pln -> Load (Val Int)
-    go (PLN _ nod) =
-        case nod of
-            P.NAT a         -> pure (NAT a)
-            P.DAT (P.PIN b) -> REF <$> goPin b
-            P.DAT (P.BAR b) -> pure (BAR b)
-            P.DAT (P.ROW r) -> ROW <$> traverse go r
-            P.DAT (P.TAB t) -> TAB <$> traverse go t
-            P.DAT (P.COW n) -> pure (COW n)
-            P.DAT (P.CAB n) -> pure (CAB n)
-            P.APP f x       -> APP <$> go (P.nodVal f) <*> go x
-            P.FUN (P.L{..}) -> do
-                b <- go lawBody
-                pure $ LAW lawName lawArgs (valBod lawArgs b)
+    go :: Fan -> Load (Val Int)
+    go = \case
+        P.NAT a         -> pure (NAT a)
+        P.PIN b         -> REF <$> goPin b
+        P.BAR b         -> pure (BAR b)
+        P.ROW r         -> ROW <$> traverse go r
+        P.TAB t         -> TAB <$> traverse go t
+        P.COW n         -> pure (COW n)
+        P.CAB n         -> pure (CAB n)
+        v@P.KLO{}       -> let (h,t) = P.boom v in APP <$> go h <*> go t
+        P.FUN (P.L{..}) -> do
+            b <- go lawBody
+            pure $ LAW lawName lawArgs (valBod lawArgs b)
 
     goPin :: P.Pin -> Load Int
     goPin pin = do
@@ -364,25 +360,24 @@ loadShallow inVal =
                 put (nex+1, tab', kor:stk)
                 pure nex
 
-loadClosure :: Pln -> Closure
+loadClosure :: Fan -> Closure
 loadClosure inVal =
     let (top, (_,_,stk)) = runState (go inVal) (0, mempty, [])
     in CLOSURE (fromList $ reverse stk) top
   where
-    go :: Pln -> Load (Val Int)
-    go (PLN _ nod) =
-        case nod of
-            P.NAT a         -> pure (NAT a)
-            P.DAT (P.PIN b) -> REF <$> goPin b
-            P.DAT (P.BAR b) -> pure (BAR b)
-            P.DAT (P.ROW r) -> ROW <$> traverse go r
-            P.DAT (P.TAB t) -> TAB <$> traverse go t
-            P.DAT (P.COW n) -> pure (COW n)
-            P.DAT (P.CAB n) -> pure (CAB n)
-            P.APP f x       -> goCel (P.nodVal f) x
-            P.FUN (P.L{..}) -> do
-                b <- go lawBody
-                pure $ LAW lawName lawArgs (valBod lawArgs b)
+    go :: Fan -> Load (Val Int)
+    go = \case
+        P.NAT a       -> pure (NAT a)
+        P.PIN b       -> REF <$> goPin b
+        P.BAR b       -> pure (BAR b)
+        P.ROW r       -> ROW <$> traverse go r
+        P.TAB t       -> TAB <$> traverse go t
+        P.COW n       -> pure (COW n)
+        P.CAB n       -> pure (CAB n)
+        v@P.KLO{}     -> let (h,t) = P.boom v in goCel h t
+        P.FUN P.L{..} -> do
+            b <- go lawBody
+            pure $ LAW lawName lawArgs (valBod lawArgs b)
 
     goCel x y = APP <$> go x <*> go y
 
@@ -402,37 +397,33 @@ loadClosure inVal =
 -- (0 f x)
 -- (1 v b)
 -- (2 c)
-isPlnCodeShaped :: Nat -> Pln -> Bool
-isPlnCodeShaped maxArg = loop
+isFanCodeShaped :: Nat -> Fan -> Bool
+isFanCodeShaped maxArg = loop
   where
-    loop = \case
-        AT n              -> n <= maxArg
-        P.NAT 0 :& _ :# _ -> True
-        P.NAT 1 :& _ :# _ -> True
-        P.NAT 2 :# _      -> True
-        _                 -> False
+    loop f = case P.kloList f of
+        [P.NAT n]       -> n <= maxArg
+        [P.NAT 0, _, _] -> True
+        [P.NAT 1, _, _] -> True
+        [P.NAT 2, _]    -> True
+        _               -> False
 
 -- TODO Better to return (Val P.Pin), but dont want to add another
 -- type varibale to the Backend abstration.  Once we kill the abstraction,
 -- then we should simplify this.
-plunVal :: Pln -> Val Pln
-plunVal = goVal
+plunVal :: Fan -> Val Fan
+plunVal = go
   where
-    goVal (PLN _ n) = goNod n
-
-    goNod :: P.Nod -> Val Pln
-    goNod = \case
-        P.NAT a            -> NAT a
-        P.APP x y          -> APP (goNod x) (goVal y)
-        P.FUN P.L{..}      -> LAW lawName lawArgs
-                                  $ valBod lawArgs
-                                  $ goVal lawBody
-        vl@(P.DAT P.PIN{}) -> REF (P.nodVal vl)
-        P.DAT (P.BAR b)    -> BAR b
-        P.DAT (P.COW n)    -> COW n
-        P.DAT (P.CAB ks)   -> CAB ks
-        P.DAT (P.ROW xs)   -> ROW (goVal <$> xs)
-        P.DAT (P.TAB t)    -> TAB (goVal <$> t)
+    go :: Fan -> Val Fan
+    go = \case
+        P.NAT a       -> NAT a
+        v@P.KLO{}     -> let (h,t) = P.boom v in APP (go h) (go t)
+        P.FUN P.L{..} -> LAW lawName lawArgs (valBod lawArgs (go lawBody))
+        vl@P.PIN{}    -> REF vl
+        P.BAR b       -> BAR b
+        P.COW n       -> COW n
+        P.CAB ks      -> CAB ks
+        P.ROW xs      -> ROW (go <$> xs)
+        P.TAB t       -> TAB (go <$> t)
 
 
 -- Hacked Together Snapshotting ------------------------------------------------
@@ -441,10 +432,10 @@ hashPath :: FilePath -> ByteString -> FilePath
 hashPath dir haz =
     (dir <> "/" <> (unpack $ encodeBtc haz))
 
-plunSave :: MonadIO m => FilePath -> Pln -> m ByteString
+plunSave :: MonadIO m => FilePath -> Fan -> m ByteString
 plunSave dir = liftIO . \case
-    PLN _ (P.DAT (P.PIN p)) -> savePin p
-    vl                      -> P.mkPin' vl >>= savePin
+    P.PIN p -> savePin p
+    vl      -> P.mkPin' vl >>= savePin
   where
     savePin (P.P{..}) = do
         createDirectoryIfMissing True dir
@@ -452,7 +443,7 @@ plunSave dir = liftIO . \case
         let pax = hashPath dir pinHash
         exists <- doesFileExist pax
         unless exists $ do
-            for_ pinRefs (plunSave dir . P.nodVal . P.DAT . P.PIN)
+            for_ pinRefs (plunSave dir . P.PIN)
             unless (null pinRefs) $ do
                 let dep = pax <> ".deps"
                 putStrLn ("WRITE FILE: " <> pack dep)
@@ -462,11 +453,11 @@ plunSave dir = liftIO . \case
 
         pure pinHash
 
-plunLoad :: MonadIO m => FilePath -> ByteString -> m Pln
+plunLoad :: MonadIO m => FilePath -> ByteString -> m Fan
 plunLoad dir key = liftIO do
     book <- P.stBook <$> readIORef P.state
     case lookup key book of
-        Just rl -> pure $ P.nodVal $ P.DAT $ P.PIN rl
+        Just rl -> pure (P.PIN rl)
         Nothing -> loadSnapshotDisk dir key
 
 loadDeps :: FilePath -> ByteString -> IO (Vector ByteString)
@@ -480,7 +471,7 @@ loadDeps dir key = do
     parseDeps bs | null bs = []
     parseDeps bs           = take 32 bs : parseDeps (drop 32 bs)
 
-loadSnapshotDisk :: FilePath -> ByteString -> IO Pln
+loadSnapshotDisk :: FilePath -> ByteString -> IO Fan
 loadSnapshotDisk dir key = do
     createDirectoryIfMissing True dir
     let pax = hashPath dir key

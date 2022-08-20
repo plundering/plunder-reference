@@ -1,19 +1,62 @@
-; TODO Rename this module to "bit"
+;;;
+;;; TODO Rename this module to "bit"?
+;;;
+;;; These around foundational operations on bits/booleans.
+;;;
+;;; There's many different ways to implement these operations, optimizing
+;;; for different things.  What I've decided to optimize for here is
+;;; "jet weight".
+;;;
+;;; Getting only `if` gets you pretty far.  With an `if` jet + inlining,
+;;; everything else is automatically implemented as a truth table.
+;;;
+;;; We could instead optimize for dependency depth, having most of these
+;;; be implemented directly in terms of `2`, but `2` is much heavier than
+;;; `if`.
+;;;
+;;; We could manually inline everything but `if` (using `!` or by hand),
+;;; which would make all of these functions literally truth tables.
+;;; However, we instead prefer for clarity of the plunder code.
+;;;
+;;; The general principles are:
+;;;
+;;; -   Prefer fewer jets to shallow dependency trees.
+;;; -   Prefer code clarity to shallow dependency trees
+;;;
+;;; So in general, we are going for short/clear definitions that boil
+;;; down to a small set of core functions that benefit greatly from
+;;; jetting.
+;;;
 
-= F 0
-= T 1
+true=1
+false=0
 
-= Y 1
-= N 0
-
-= (toBool x)    | 2 F _&T x
-= (not x)       | 2 T _&F x
 = (if x t e)    | 2 e _&t x
-= (ifNot x t e) | 2 t _&e x
+= (not x)       | if x 0 1
+= (bit x)       | if x 1 0
+= (and x y)     | if x (bit y) 0
+= (or x y)      | if x 1 (bit y)
+= (xor x y)     | if x (not y) (bit y)
+= (nand x y)    | not (and x y)
+= (nor x y)     | not (or x y)
+= (xnor x y)    | not (xor x y)
+= (ifNot x t e) | if (not x) t e
 
-= (and x y)  | if x (toBool y) F
-= (or x y)   | if x T (toBool y)
-= (xor x y)  | if x (not y) (toBool y)
-= (nand x y) | not (and x y)
-= (nor x y)  | not (or x y)
-= (xnor x y) | not (xor x y)
+?? true
+?? not false
+?? not (not true)
+
+?? if 1 1 0
+?? not (if 1 0 1)
+?? if 0 0 1
+?? not (if 0 1 0)
+
+if if 0 1
+
+?? if if 0 1
+?? not (if if 1 0)
+
+;; TODO Need some external tests in order to truly capture the behavior.
+;;
+;; For example `and 1 (x&x)` is `0`, not `(x&x)`, but we don't have
+;; enough expressive power to test that in this module.

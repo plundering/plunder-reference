@@ -7,18 +7,19 @@
 ;;;
 ;;; TODO Golf all of these operations to remove dependencies.
 ;;;
-;;; TODO Move these operations to prim.
+;;; TODO Move these operations to prim (or row?).
 ;;;
 
-/+  prim   (isApp appHead appTail)
-/+  combo  (S K)
-/+  nat    (inc dec aeq)
-/+  either (LEFT RIGHT eitherOpenLeft)
+/+  prim   (seq isApp car cdr cdar trk)
+/+  nat    (inc dec sub gte aeq)
 /+  bool   (if ifNot not)
 
-(head non)=(if isApp-non (head appHead-non) non)
 
-(dec x)=(2 0 y&y x)
+;;;;;;;;;;;;;;;;;
+;; Definitions ;;
+;;;;;;;;;;;;;;;;;
+
+(head non)=(if isApp-non (head car-non) non)
 
 = (arity x)
 @ f (_ a _)&a
@@ -26,22 +27,32 @@
 @ n (2 3 (2 4 (2 3 _&1)))
 | 1 f a n x
 
-= (idx ix vl)
-^ if appHead-res appTail-res 0
-= res
-. vl
-? (loop v)
-| ifNot isApp-v {! LEFT 0}
-@ hed appHead-v
-@ tel appTail-v
-! eitherOpenLeft loop-hed
-& dep
-| if aeq-ix-dep {! RIGHT tel}
-! LEFT (inc dep)
+= (len v)
+. 0 v
+? (go n v)
+| seq n
+| ifNot (isApp v) n
+| go (inc n) (car v)
 
-(get v i)=(idx i v)
+= (get v i)
+| ifNot (isApp v) 0
+| 2 cdr-v (get car-v) i
 
-(len v)=(dec (arity head-v))
+= (mut ix vl rw)
+| ifNot (isApp rw) rw
+| ifNot ix         (car rw vl)
+| mut (dec ix) vl (car rw) (cdr rw)
+
+(idx i v)=(get v i)
+
+
+;;;;;;;;;;;
+;; Tests ;;
+;;;;;;;;;;;
+
+v0=(0 0 1 0)
+(v1 x)=(0 0 2 0 x)
+(v2 x y)=(0 0 3 0 y x)
 
 ?? aeq 3 arity-0
 ?? aeq 4 arity-1
@@ -58,16 +69,38 @@
 ?? aeq 2 arity-(0 0)
 ?? aeq 3 arity-0
 
+?? cdr (0 0 2 0 1)
+?? cdr (0 0 3 0 2 1)
+?? cdr car-(0 0 3 0 1 2)
+
+?? aeq 0 | len v0
+?? len (v1 0)
+?? aeq 1 | len (v1 0)
+
+?? aeq 2 | len (v2 0 0)
+?? aeq 0 | len 0
+?? aeq 1 | len (0 1)
+
 ?? aeq 0 | idx 0 2
 ?? aeq 3 | idx 0 (2 3)
-?? aeq 3 | idx 0 (2 3 4)
-?? aeq 4 | idx 1 (2 3 4)
+?? aeq 4 | idx 0 (2 3 4)
+?? aeq 3 | idx 1 (2 3 4)
 ?? aeq 0 | idx 2 (2 3 4)
 
 ?? aeq 0 | idx 0 1
-?? aeq 0 | idx 0 (1 0 1)
-?? aeq 1 | idx 1 (1 0 1)
+?? aeq 1 | idx 0 (1 0 1)
+?? aeq 0 | idx 1 (1 0 1)
 ?? aeq 0 | idx 2 (1 0 1)
 
-^-^ head arity
-^-^ idx get len
+?? aeq 0 | get 1 0
+?? aeq 1 | get (1 0 1) 0
+?? aeq 0 | get (1 0 1) 1
+?? aeq 0 | get (1 0 1) 2
+
+
+;;;;;;;;;;;;;
+;; Exports ;;
+;;;;;;;;;;;;;
+
+^-^ head arity len
+^-^ idx mut get

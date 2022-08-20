@@ -1,8 +1,9 @@
 /+  prim   (isNat isFun funArgs funBody car cdr)
 /+  prim   (cdar caar)
 /+  nat    (dec aeq)
-/+  bool   (if ifNot and)
+/+  bool   (if ifNot not and)
 /+  apply  (arity)
+/+  row    (',')
 /+  eql
 
 = (mkPin item)
@@ -37,6 +38,13 @@
 | and isPin-pin
 | eql item pinItem-pin
 
+?? isPin isPin
+?? isPin pinItem
+?? not isPin-(pinItem isPin)
+?? not isPin-(x&x)
+?? not isPin-0
+?? not isPin-(0 0)
+
 ?? checkPin 0
 ?? checkPin 1
 ?? checkPin 2
@@ -48,7 +56,7 @@
 ?? checkPin (1 1 1 1)
 ?? checkPin (x & x)
 ?? checkPin (x y & x)
-?? checkPin R2
+?? checkPin (0 0 3 0)
 ?? checkPin [3 4 5]
 ?? checkPin checkPin
 

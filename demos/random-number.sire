@@ -1,0 +1,10 @@
+/+  row
+/+  prim
+
+= (randTest selfId)
+. [[0 0 16]]
+? (loop _ _ val)
+| trk [%rand val]
+| loop [[0 0 16]]
+
+<<randTest

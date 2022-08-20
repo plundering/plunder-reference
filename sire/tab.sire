@@ -1,65 +1,112 @@
-/+  prim   (funBody mkFun)
-/+  nat    (inc)
-/+  apply  (len head idx)
-/+  bool   (if not)
-/+  eql    (eql)
-/+  maybe  (maybeCase)
-/+  row    (find has map rowApply weld)
-/+  list   (sortOn listFromRow listToRow listZip)
+/+  prim     (trk funBody mkFun)
+/+  nat      (inc)
+/+  apply    (len head mut idx)
+/+  bool     (not ifNot)
+/+  eql      (eql)
+/+  maybe    (maybeCase)
+/+  row      (elemIdx has map rowRepel weld put)
+/+  row      (",")
+/+  list     (sortOn listFromRow listToRow listMap listZip)
+/+  inspect  (inspect fullInspection)
 
-= (tabLen tab) | len (funBody head-tab)
+';; Tabs ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;'
 
+tabLen=len
+
+?? eql 0 | tabLen %[]
+?? eql 1 | tabLen %[x=0]
+?? eql 2 | tabLen %[x=0 y=1]
+
+?? eql (inspect %[x=0 y=1]) [%[x y] 1 0]
+?? eql (inspect %[x y])     [0 0 3 [%x %y]]
+?? eql (inspect [%x %y])    [(0 0 3 0) %y %x]
+
+?? eql (fullInspection %[x=0 y=1])
+       [[0 0 3 [[0 0 3 0] %y %x]] 1 0]
+
+
+;; TODO Maybe this should take the fallback as an argument?
+;; That would eliminate the need for `tabSwitch`.
 = (tabIdx key tab)
 @ keys (funBody head-tab)
-! maybeCase (find key keys) 0
-| (i & idx i tab)
+! maybeCase (elemIdx key keys) 0
+(ix & idx ix tab)
 
-= (look tab key)  | tabIdx key tab
-= (tabKeys tab)   | funBody head-tab
-= (tabHas k t)    | has k tabKeys-t
-= (tabGet t k)    | tabIdx k t
-= (tabValues tab) | map tabGet-tab tabKeys-tab
+= (look tab key) | tabIdx key tab
+= (tabKeys tab)  | funBody head-tab
+= (tabVals tab)  | map look-tab tabKeys-tab
+= (hasKey k t)   | has k tabKeys-t
+
+;; TODO `tabKeys` should probably return a cab
+;; TODO Implement cab operations.
 
 = (tabSwitch key fal tab)
-| if not(tabHas key tab) fal
+| ifNot (hasKey key tab) fal
 | tabIdx key tab
 
 = (tabMatch val fal tab)
 | tabSwitch idx-0-val fal tab
 
-?? eql 8 | tabIdx 0 %[0=8]
-?? eql 9 | tabIdx %aa %(bb=8, aa=9)
-?? tabHas %aa %(bb=8, aa=9)
-?? not | tabHas %cc %(bb=8, aa=9)
-
-;; eql 8 | tabIdx 0 %(0=8)
-;; TODO This should work too.
-
-= (tabFromRow rawPairs)
+;;; Only returns a valid tab is pairs contains no duplicate keys.
+= (tabFromPairs rawPairs)
 @ pairs | sortOn idx-0 rawPairs
 @ wid   | len pairs
 @ keys  | map idx-0 pairs
 @ vals  | map idx-1 pairs
 @ cab   | mkFun 0 inc-wid keys
-| rowApply cab vals
+| rowRepel cab vals
 
-= (tabToRow tab)
+= (tabToPairs tab)
 @ ks | listFromRow tabKeys-tab
 @ vs | listFromRow tab
 ; trk %[=ks =vs]
 ; trk %[zipped=(listZip ks vs)]
 | listToRow | listZip ks vs
 
-(tabToList tab)=(listFromRow tabToRow-tab)
+= (tabToPairList tab)
+| listMap
+    (i & [i look-tab-i])
+| listFromRow (tabKeys tab)
 
-; TODO Doesn't overwrite correctly
-= (tabPut tab key val)
-; trk ,, tab
-;     ,, tabToRow-tab
-| tabFromRow
-; trkVal %pairs
-| weld tabToRow-tab
-| [[key val]]
+(tabToList tab)=(listFromRow tabToPairs-tab)
 
-^-^ tabLen tabIdx look tabKeys tabHas tabGet tabValues tabSwitch tabMatch
-^-^ tabFromRow tabToRow tabToList tabPut
+= (tabMut key val tab)
+@ keys (tabKeys tab)
+! maybeCase (elemIdx key keys)
+    | tabFromPairs
+    | weld [[key val]]
+    | tabToPairs tab
+& ix
+| mut ix val tab
+
+(tabPut x k v)=(tabMut k v x)
+
+
+;;;;;;;;;;;
+;; Tests ;;
+;;;;;;;;;;;
+
+?? eql 8 | tabIdx 0 %[0=8]
+?? eql 9 | tabIdx %aa %(bb=8, aa=9)
+
+?? hasKey %aa %(bb=8, aa=9)
+?? not | hasKey %cc %(bb=8, aa=9)
+
+?? eql [3 4] | tabKeys %[3=3 4=4]
+?? eql []    | tabKeys %[]
+
+?? eql %[3=3]     | tabMut 3 3 %[3=4]
+?? eql %[3=4 4=4] | tabMut 4 4 %[3=4]
+?? eql %[0=0]     | tabMut 0 0 %[]
+?? eql %[0=0]     | tabMut 0 0 %[]
+
+;; eql 8 | tabIdx 0 %(0=8)
+;; TODO This should work too.
+
+
+;;;;;;;;;;;;;
+;; Exports ;;
+;;;;;;;;;;;;;
+
+^-^ tabLen tabIdx look tabKeys hasKey look tabVals tabSwitch tabMatch
+^-^ tabFromPairs tabToPairs tabToPairList tabToList look tabPut tabMut

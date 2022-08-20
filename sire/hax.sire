@@ -1,10 +1,13 @@
-/+  bool   (if not)
+/+  prim   (die)
+/+  bool   (if ifNot)
 /+  nat    (lth)
 /+  eql    (eql)
-/+  row    (idx len drop)
+/+  row    (idx len drop ",")
 /+  either (LEFT RIGHT)
-/+  macro  (HEIR cnsE rexGetWord cordWeld)
-/+  tab    (tabHas tabGet)
+/+  cord   (cordWeld)
+/+  sire   (cnsE)
+/+  rex    (HEIR rexGetWord)
+/+  tab    (hasKey look)
 
 ;;; TODO Handle cases where `x` is not a valid identifier (use one of
 ;;; these forms: ($"asdf" $234).
@@ -13,16 +16,16 @@
 
 = ("#" envr next kids heir)
 @ rex
-   (HEIR "#" kids heir)
+    | HEIR "#" kids heir
 | if (lth len-kids 1)
-   LEFT-[rex "# Macros needs at least on kid"]
+    | LEFT [rex "# Macros needs at least on kid"]
 ! rexGetWord (idx 0 kids)
-   LEFT-[rex "First parameter to # must be a bare-word"]
+    | LEFT [rex "First parameter to # must be a bare-word"]
 & name
 @ key (cordWeld "#" name)
-| if (not tabHas-key-envr)
+| ifNot (hasKey key envr)
    LEFT-[rex (cordWeld "Undefined Symbol: " showSymbol-key)]
-@ fun (tabGet envr key)
+@ fun (look envr key)
 | fun envr next (drop 1 kids) heir
     ;;;
     ;;; TODO Really need to change the macro interface so that

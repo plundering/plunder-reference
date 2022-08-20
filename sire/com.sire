@@ -1,0 +1,50 @@
+/+  prim
+/+  bool
+/+  eql
+/+  row
+/+  list
+/+  rex
+/+  either
+/+  col ":"
+/+  row ","
+
+
+;;;;;;;;;;;;;;;;;
+;; Definitions ;;
+;;;;;;;;;;;;;;;;;
+
+= (parseOpenRow rex)
+@ fall RIGHT-(CONS rex NIL)
+@ need LEFT-[rex "At least one kid is required"]
+: (rune kids heir) <- rexGetNode rex fall
+| if (neq ",," rune) fall
+| if (null kids) need
+| if (eql 0 heir)
+    | RIGHT (CONS (NODE "|" kids) NIL)
+: rest <- eitherOpen (parseOpenRow heir)
+| RIGHT (CONS (NODE "|" kids) rest)
+
+= (",," e n kids heir)
+@ rex (HEIR ",," kids heir)
+: list <- eitherOpen (parseOpenRow rex)
+| RIGHT (0, NODE "," (listToRow list))
+
+
+;;;;;;;;;;;
+;; Tests ;;
+;;;;;;;;;;;
+
+?? eql [3 4 5] (,, 3)(,, 4)(,, 5)
+?? eql [3 4 5] (,, 3)(,, 4)5
+?? eql [3 4 5] (,,3)(,, 3 3)5
+
+?? eql [3 4 5] ,, 3
+               ,, 4
+               ,, 5
+
+;;;;;;;;;;;;;
+;; Exports ;;
+;;;;;;;;;;;;;
+
+^-^ ","
+^-^ ",,"

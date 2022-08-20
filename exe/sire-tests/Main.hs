@@ -1,2 +1,6 @@
 module Main (main) where
-import Sire.TestExe (main)
+import qualified Sire.TestExe
+import Plun.JetHash (installJetHashes)
+import Plun.JetImpl (installJetImpls)
+import Prelude ((>>))
+main = installJetHashes >> installJetImpls >> Sire.TestExe.main

@@ -1,18 +1,35 @@
-;;;;;;;;;;
-;; Rows ;;
-;;;;;;;;;;
-
-/+  prim   (mkFun isFun funName funBody seq)
-/+  combo  (apply)
-/+  apply  (head arity idx get len)
-/+  bool   (T F if ifNot not and or)
+/+  prim   (mkFun isFun isApp funName funBody seq cdar cdr)
+/+  prim   (apply supply die trk)
+/+  apply  (head arity idx mut get len)
+/+  bool   (true false if ifNot not and or)
 /+  nat    (inc dec add sub mul div)
 /+  nat    (gte lte gth lth aeq)
 /+  nat    (min roundUp)
 /+  maybe  (SOME NONE)
-/+  eql    (eql)
+/+  eql    (eql neq)
 
-(mkRow n)=(mkFun 0 inc-n 0)
+
+;;;;;;;;;;;;;;;;;
+;; Definitions ;;
+;;;;;;;;;;;;;;;;;
+
+(cow n)=(mkFun 0 inc-n 0)
+
+c0=(cow 0)
+c1=(cow 1)
+c2=(cow 2)
+c3=(cow 3)
+v0=c0
+v1=c1
+(v2 x y)=(c2 y x)
+(v3 x y z)=(c3 z y x)
+
+= (mkRow n)
+| 0 0 n
+. n (2 cow-n)
+? (go i acc)
+| ifNot i acc
+| go (dec i) (0 acc i)
 
 = (isCow val)
 | and isFun-val
@@ -23,21 +40,7 @@
 | and (eql 1 arity-r)
 | isCow head-r
 
-?? eql [0 1 2] (mkRow 3 0 1 2)
-?? isRow []
-?? isRow [1]
-?? isRow [1 2]
-?? not (isRow %[1 2])
-?? not (isRow isRow)
-
-; TODO What does this do?
-; TODO Can we implement this using `gen`?
-= (splice v s e)
-@ wid sub-e-s
-. s mkRow-wid
-? (loop i acc)
-| if (gte i e) acc
-| loop inc-i (acc get-v-i)
+(null row)=(not isApp-row)
 
 = (switch i fb ps)
 | if (gte i len-ps) fb
@@ -47,133 +50,201 @@
 | switch idx-0-v fb ps
 
 = (gen n f)
-. n 0 mkRow-n
-? (loop n i acc)
-| ifNot n acc
-| loop dec-n inc-i acc-(f i)
+. n cow-n
+? (go mor acc)
+| ifNot mor acc
+@ nex dec-mor
+| go nex acc-(f nex)
 
-= (foldr fun init row)
-@ wid len-row
-| ifNot (len row) init
-. 0
-? (loop key)
-@ elem (get row key)
-| if (eql key wid) init
-| fun elem loop-(inc key)
+(slice v s e)=(gen (sub e s) (i & get v add-s-i))
 
-= (foldl f init v)
-@ wid len-v
-. init 0
-? (loop acc key)
-| if (gte key wid) acc
-@ nex (f acc get-v-key)
-| seq nex
-| loop nex (inc key)
+= (foldr f z row)
+. 0 (len row)
+? (go i rem)
+| ifNot rem z
+| f (get row i)
+| go inc-i dec-rem
 
-; concatenate two rows
+= (foldl f z row)
+. z 0 (len row)
+? (go acc i rem)
+| seq acc
+| ifNot rem acc
+@ rem (dec rem)
+@ acc (f acc (idx i row))
+| go acc (inc i) rem
+
 = (weld x y)
 @ xw len-x
 @ yw len-y
 | gen (add xw yw)
 & i
-| if (lth i xw) (get x i)
-| get y (sub i xw)
+| if (lth i xw) (idx i x)
+| idx (sub i xw) y
 
-= (snoc row val) | weld row [val]
-= (cons val row) | weld [val] row
+(tag row)=(gen len-row i&(c2 idx-i-row i))
 
-= (find key row)
-@ wid (len row)
-. 0
-? (loop idx)
-| if (eql wid idx)
-    | NONE
-| if (eql key | get row idx)
-    | SOME idx
-| loop (inc idx)
+= (findIdx f row)
+. NONE tag-row
+| foldr
+& (iv rest)
+| if f-(idx 1 iv) SOME-(idx 0 iv) rest
 
-= (update key val row)
-| gen len-row
-& i
-| if (eql i key) val (idx i row)
+(elemIdx key row)=(findIdx (eql key) row)
 
-= (replicate i n) | gen n _&i
-= (map f v)       | gen len-v x&(f get-v-x)
+= (put rw ix vl)  | mut ix vl rw
+= (rep i n)       | gen n _&i
+= (map f v)       | gen len-v x&(f idx-x-v)
 = (turn f v)      | map v f
-= (put v i x)     | update i x v
-= (rowAnd v)      | foldr and T v
-= (rowOr v)       | foldr or F v
-= (sum v)         | foldr add F v
+= (rowAnd v)      | foldr and true v
+= (rowOr v)       | foldr or false v
+= (sum v)         | foldr add false v
 = (all f v)       | rowAnd map-f-v
 = (any f v)       | rowOr map-f-v
-= (concat vs)     | foldr weld [] vs
-= (concatMap f r) | concat map-f-r
-
-= (zip a b)
-@ wid (min len-a len-b)
-| gen wid i&[idx-i-a idx-i-b]
-
-= (zipWith f a b)
-@ wid (min len-a len-b)
-| gen wid i&(f idx-i-a idx-i-b)
-
+= (cat vs)        | foldr weld v0 vs
+= (catMap f r)    | cat (map f r)
+= (zipWith f a b) | gen (min len-a len-b) i&(f idx-i-a idx-i-b)
+= (zip a b)       | zipWith v2 a b
 = (rowApply f xs) | foldl apply f xs
+= (rowRepel f xs) | foldr supply f xs
+= (take n v)      | gen (min n len-v) get-v
+= (drop n v)      | gen (sub len-v n) i&(get v add-i-n)
+= (has ele row)   | any eql-ele row
 
-= (take n v)
-| gen | min n len-v
-| get v
-
-= (drop n v)
-| gen (sub len-v n) i&(get v add-i-n)
-
-= (reverse xs)
+= (rev xs)
 @ wid len-xs
 | gen wid i&(get xs sub-wid-(inc i))
 
-?? eql [5 4 3] reverse-[3 4 5]
-?? eql []      reverse-[]
-
-= (has ele row) | (any eql-ele row)
-
-?? | aeq 12 | sum 3,4,5
-?? | eql [1 2 3 4 5 6 7 8 9]
-  | concat , [] [1] [2 3] [4 5 6] [7 8] [9] []
-
-?? eql []        | take 0  , 1 2 3 4
-?? eql [1]       | take 1  , 1 2 3 4
-?? eql [1 2 3 4] | take 4  , 1 2 3 4
-?? eql [1 2 3 4] | take 20 , 1 2 3 4
-?? eql [1 2 3 4] | drop 0  , 1 2 3 4
-?? eql [2 3 4]   | drop 1  , 1 2 3 4
-?? eql [4]       | drop 3  , 1 2 3 4
-?? eql []        | drop 4  , 1 2 3 4
-?? eql []        | drop 20 , 1 2 3 4
-
 = (chunks i v)
-| ifNot (len v) []
-. v | mkRow | div (roundUp len-v i) i
-? (loop v acc)
-| if (eql 0 | len v) acc
-| loop (drop i v)
+| ifNot (isApp v) v0
+| rev
+@ wid (div (roundUp len-v i) i)
+. v cow-wid
+? (go v acc)
+| ifNot (len v) acc
+| go (drop i v)
 | acc | take i v
 
-?? eql [1 2 3 4]     | drop 0 1,2,3,4
-?? eql []            | drop 10 1,2,3,4
+= ("," e n kids heir)
+@ kids (if (eql 0 heir) kids (weld kids (c1 heir)))
+@ wid (len kids)
+| 1
+| v2 0
+| v3 0 "|"
+| weld (v1 (v2 4 cow-(len kids)))
+| rev kids
+
+?? eql [3 4] (v2 3 4)
+
+
+;;;;;;;;;;;
+;; Tests ;;
+;;;;;;;;;;;
+
+/+  prim
+
+r=rev
+
+(r3 x y z)=(cow 3 z y x)
+
+?? eql [0 1 2] (r3 0 1 2)
+?? isRow []
+?? isRow [1]
+?? isRow [1 2]
+?? not (isRow %[1 2])
+?? not (isRow isRow)
+
+?? eql [3 4 5] | caaar  [3 4 5] 5 4 3
+?? eql [3 4]   | caar   [3 4]   4 3
+?? eql [3]     | car    [3]     3
+?? eql []      | car    []      0
+?? eql [3]     | caar   [3]     0 3
+?? eql [3 4]   | caaar  [3 4]   0 4 3
+?? eql [3 4 5] | caaaar [3 4 5] 0 5 4 3
+
+?? not (has 1 [2 3 4])
+?? not (has 1 [2 3 4])
+?? has 2 [2 3 4]
+?? has 3 [2 3 4]
+?? has 4 [2 3 4]
+?? not (has 5 [2 3 4])
+
+?? eql SOME-0 | elemIdx 5 [5 6 7]
+?? eql SOME-1 | elemIdx 6 [5 6 7]
+?? eql SOME-2 | elemIdx 7 [5 6 7]
+?? eql NONE   | elemIdx 8 [5 6 7]
+
+?? eql (slice [3 4 5] 0 5) [3 4 5 0 0]
+?? eql (slice [3 4 5] 1 4) [4 5 0]
+?? eql (slice [3 4 5] 2 3) [5]
+?? eql (slice [3 4 5] 3 2) []
+
+(ADD x y k)=(k x y)
+?? eql (foldr ADD %z [])      | %z
+?? eql (foldl ADD %z [])      | %z
+?? eql (foldr ADD %z [1 2 3]) | ADD 1 | ADD 2 | ADD 3 %z
+?? eql (foldl ADD %z [1 2 3]) | ADD (ADD (ADD %z 1) 2) 3
+?? eql (foldl ADD %z 1)       | %z
+?? eql (foldl ADD %z (0 1))   | ADD %z 1
+?? eql (foldl ADD %z (0 2 1)) | ADD (ADD %z 1) 2
+
+?? eql (rowApply ADD [0 1])   | ADD 0 1
+?? eql (rowApply ADD [0 1 2]) | 2 0 1
+
+?? eql (rowRepel ADD [1 0])   | ADD 0 1
+?? eql (rowRepel ADD [2 1 0]) | 2 0 1
+
+?? eql [5 4 3] rev-([3 4 5])
+?? eql []      rev-([])
+
+?? | aeq 12 sum-([3 4 5])
+?? | eql [1 2 3 4 5 6 7 8 9]
+   | cat [[] [1] [2 3] [4 5 6] [7 8] [9] []]
+
+?? eql []        | take 0  [1 2 3 4]
+?? eql [1]       | take 1  [1 2 3 4]
+?? eql [1 2 3 4] | take 4  [1 2 3 4]
+?? eql [1 2 3 4] | take 20 [1 2 3 4]
+?? eql [1 2 3 4] | drop 0  [1 2 3 4]
+?? eql [2 3 4]   | drop 1  [1 2 3 4]
+?? eql [4]       | drop 3  [1 2 3 4]
+?? eql []        | drop 4  [1 2 3 4]
+?? eql []        | drop 20 [1 2 3 4]
+
+?? eql [1 2 3 4]     | drop 0 [1 2 3 4]
+?? eql []            | drop 10 [1 2 3 4]
 ?? eql []            | chunks 3 []
 ?? eql [[1]]         | chunks 3 [1]
 ?? eql [[1 2 3]]     | chunks 3 [1 2 3]
 ?? eql [[1 2 3] [4]] | chunks 3 [1 2 3 4]
-?? has %aa [%aa %bb]
 
-^-^ head arity idx get len
-^-^
-^-^ mkRow isCow isRow
-^-^ splice chunks replicate weld
+?? has %aa [%aa %bb]
+?? not (has %aa [%bb %cc])
+
+?? null-[]
+?? null-0
+?? not null-[%x]
+?? not null-(0 %x)
+
+
+;;;;;;;;;;;;;
+;; Exports ;;
+;;;;;;;;;;;;;
+
+^-^ cow isCow isRow
+^-^ mkRow null
+^-^ slice chunks rep weld
 ^-^ switch match
 ^-^ gen foldr foldl
-^-^ update
-^-^ find has
+^-^ mut
+^-^ tag findIdx elemIdx has
 ^-^ rowAnd rowOr sum all any zip zipWith
-^-^ concat concatMap
-^-^ map turn put take drop reverse
-^-^ rowApply
+^-^ cat catMap
+^-^ map turn take drop rev
+^-^ rowApply rowRepel
+;;;
+;;; Re-Exports (from apply)
+;;;
+^-^ ","
+^-^ head arity idx len
+^-^ get put

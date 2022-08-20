@@ -1,0 +1,94 @@
+;;;
+;;; The `:` macro.  It's a short hand for something like a monadic bind.
+;;;
+;;;     : (a b c) <- f x y z
+;;;     | z
+;;;
+;;;     =>
+;;;
+;;;     ! f x y z
+;;;     & (a b c)
+;;;     | z
+;;;
+;;; -   The first parameter may be a symbol or a `|` of symbols.
+;;; -   The second parameter by a <- node.
+;;
+
+/+  prim
+/+  bool
+/+  nat
+/+  eql
+/+  row
+/+  either
+/+  tab
+/+  sire     (getSymbol readSymbol readNodeMerged)
+/+  macro    (eitherRowTraverse)
+/+  rex      (HEIR NODE WORD)
+/+  rex      ("`" rexCase rexGetNode)
+
+
+;;;;;;;;;;;;;;;;;
+;; Definitions ;;
+;;;;;;;;;;;;;;;;;
+
+= (readSignature rex)
+@ mustBe | """Expected `x` or signature `(x y z)`
+@ err    | LEFT [rex mustBe]
+@ node
+    & (rune args cont)
+    @ noCont """name-sequence cannot have a continuation
+    | if (neq rune "|") | err
+    | if (neq cont 0)   | err
+    | eitherRowTraverse readSymbol args
+@ bare
+    & _
+    ! getSymbol rex
+    & res
+    | RIGHT [res]
+! rexCase rex node bare _&err _&err _&err
+
+= (readBinder rex)
+! rexGetNode rex LEFT-[rex "Not a binder"]
+& (rune kids heir)
+| if (neq rune "<-")
+    | LEFT [rex "Expected a <- node in : binder"]
+| RIGHT
+| weld kids
+| if (eql 0 heir) [] [heir]
+
+= (":" envr next kids heir)
+@ rex (HEIR ":" kids heir)
+| if (eql 0 heir)     LEFT-[rex "Heir is required"]
+| if (neq 2 len-kids) LEFT-[rex "Expected two parameters"]
+| readNodeMerged rex [readSignature readBinder RIGHT]
+& (sig kids body)
+| RIGHT
+, 0
+| HEIR "!" kids
+| HEIR "&" [(NODE "|" map-WORD-sig)]
+| body
+
+
+;;;;;;;;;;;
+;; Tests ;;
+;;;;;;;;;;;
+
+?? eql RIGHT-[%a %b %c] (readSignature `(a b c))
+?? eql RIGHT-[%a]       (readSignature `a)
+
+= (getRexRune rex k)
+@ err LEFT-[rex "Expected a node"]
+: (rune kids heir) <- rexGetNode rex err
+! k rune
+
+??  : rune <- getRexRune `(3 + 4)
+    | eql rune "+"
+??  : three <- eitherCase (RIGHT 3) I
+    | eql three 3
+
+
+;;;;;;;;;;;;;
+;; Exports ;;
+;;;;;;;;;;;;;
+
+^-^ ":"

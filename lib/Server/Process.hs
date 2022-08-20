@@ -1,19 +1,17 @@
-module Server.Process where
+{- |
+All code about applying Responses to a noun, and then parsing the produced
+keys and Requests from the return value.
 
--- All code about applying Responses to a noun, and then parsing the produced
--- keys and Requests from the return value.
---
--- We split this code out because it is the same between the SimpleMachine and
--- any more complicated production Machine we write.
+We split this code out because it is the same between the SimpleMachine and
+any more complicated production Machine we write.
+-}
+module Server.Process where
 
 import PlunderPrelude
 
 import Control.Monad.State (StateT, evalStateT, runStateT)
-import Crypto.Sign.Ed25519 (PublicKey(..), SecretKey(..), createKeypair,
-                            toPublicKey)
 import Numeric.Natural     (Natural)
-import Plun                (Nat, Pln(PLN), pattern AT, (%%))
-import Plun.Print          (encodeBtc)
+import Plun                (Nat, Fan(NAT), (%%))
 import System.Entropy      (getEntropy)
 
 import Server.Convert
@@ -28,209 +26,111 @@ thirtySecondsInUs :: Int = 30 * 10 ^ 6
 
 -- Types needed to communicate with an individual process.
 
-newtype Key = KEY { unkey :: SecretKey }
-  deriving newtype (Eq, Ord)
+-- -----------------------------------------------------------------------
 
-instance Show Key where
-  show _ = "Key {<SECRET>}"
-
-newtype Pub = PUB { unpub :: PublicKey }
-  deriving newtype (Eq, Ord)
-
-instance Show Pub where
-  show (PUB (PublicKey bs)) = "Pub {" ++ (unpack $ encodeBtc bs) ++ "} "
-
-newtype LocalAddress = LOCAL { unLocal :: Nat }
-  deriving newtype (Show, Eq, Ord)
+-- An open request is a request on a given thread.
+data RequestHandle = RequestHandle { rhPid :: ProcessId, rhReqId :: RequestId }
+  deriving (Eq, Ord, Show)
 
 --
-data Claim
-  = LocalClaim LocalAddress  -- 0
-  | Ed25519Blake3Claim Key   -- 1
-  deriving (Show, Eq, Ord)
-
--- -----------------------------------------------------------------------
-
-data LogType = Logged | Unlogged
-  deriving (Eq, Ord, Show)
-
--- ProcessIdxs are written to event logs. But we have to be able to address
--- processes which aren't written to event logs, too.
-data ProcessId = ProcessId LogType ProcessIdx
-  deriving (Eq, Ord, Show)
-
-processIdToProcessIdx :: ProcessId -> Either ProcessIdx ProcessIdx
-processIdToProcessIdx (ProcessId Logged l)   = Left l
-processIdToProcessIdx (ProcessId Unlogged r) = Right r
-
--- -----------------------------------------------------------------------
-
--- An open request is a request on a given thread. Two OpenReq are equal if
--- they point to the same position on the same thread.
-data RequestHandle = RequestHandle ProcessId RequestIdx
-  deriving (Eq, Ord, Show)
-
-data LocalSendRep = LocalSendRep { srSrc :: LocalAddress,
-                                   srDst :: LocalAddress,
-                                   srVal :: Pln }
-  deriving (Show)
-
-data LocalRecvRep = LocalRecvRep { rrDst  :: LocalAddress,
-                                   rrSrcs :: Set LocalAddress }
-  deriving (Show)
+recvHandle :: ProcessId -> RequestHandle
+recvHandle pid = RequestHandle pid (RequestId 0)
 
 -- The types of Request we can parse
 data Request
-  = LocalNext                  -- 1               -> IO Nat
-  | ForkLogged Pln             -- {2 Exe}         -> IO {}
-  | ForkUnlogged Pln           -- {3 Exe}         -> IO {}
-  | LocalBury LocalAddress     -- {4 Exe}         -> IO Why
-  | LocalKill LocalAddress Pln -- {5 Nat Pln}     -> IO {}
-  | LocalSend LocalSendRep     -- {6 Nat Nat Pln} -> IO {}
-  | LocalRecv LocalRecvRep     -- {7 Nat Nat*}    -> IO {Nat Pln}
-  | Wait Natural               -- {8 Wen}         -> IO Wen
-  | When                       -- 9               -> IO Wen
-  | Rand                       -- 10              -> IO Bar
-  -- We can't parse this request, but we must still track it. The Pln is the
+  -- Local Operations
+  = ReqCall Nat Fan        -- [0 i v] -> IO Fan
+  | ReqSend ProcessId Fan  -- [1 p v] -> IO ()
+  | ReqFork Fan            -- [2 v]   -> IO Pid
+
+  -- We can't parse this request, but we must still track it. The Fan is the
   -- raw request val.
-  | UNKNOWN Pln
-  deriving (Show)
-
-data BuryWhy
-  = WhyKilled Pln
-  | WhyShutdown
-  | WhyMissing
-  | WhyReleased
-  | WhyMemory
-  | WhyTimeout
-  deriving (Show)
-
-
-data ForkOp
-  = FOLogged ProcessId
-  | FOUnlogged ProcessId
-  | FOReplayUnlogged
+  | UNKNOWN Fan
   deriving (Show)
 
 -- A response is the input to the process.
 data Response
-  = Fork {
-      fOp  :: ForkOp,
-      fVal :: Pln
+  = RespRecv {
+      respRecvSendReq :: RequestHandle,
+      respRecvVal     :: Fan
+      }
+  | RespFork {
+      respForkPid :: ProcessId,
+      respForkVal :: Fan
       }
   | RunValue {
-      rlVal :: Pln
-      }
-  | RecvLocal {
-      rlSendReq :: RequestHandle,
-      rlVal     :: Pln,
-      rlSrc     :: LocalAddress,
-      rlDst     :: LocalAddress
-      }
-  | RunKill {
-      rlReason           :: Pln,
-      rlLoggedTidsKilled :: [ProcessIdx],
-      rlKilledChangesets :: [KilledChangeset]
+      rvVal :: Fan
       }
   deriving (Show)
 
 responseOK :: Response
-responseOK = RunValue $ AT 0
+responseOK = RunValue $ NAT 0
 
-responseToVal :: Response -> IO Pln
-responseToVal Fork{}                = pure $ AT 0
-responseToVal (RunValue val)        = pure val
-responseToVal (RecvLocal _ val _ _) = pure val
-responseToVal RunKill{}             = pure $ AT 0
+responseToVal :: Response -> Fan
+responseToVal RespRecv{..}    = P.mkRow [toNoun $ rhPid respRecvSendReq,
+                                         respRecvVal]
+responseToVal RespFork{..}    = toNoun respForkPid
+responseToVal RunValue{rvVal} = rvVal
 
 -- -----------------------------------------------------------------------
 
+-- | The state of a Process.
 data Process = PROCESS {
-  processProcessId         :: ProcessId,
-  processNoun              :: Pln,
-  processRequestsByIndex   :: IntMap (Pln, Request),
-  processExpectedClaimNoun :: Pln
+  processProcessId       :: ProcessId,
+  processNoun            :: Fan,
+  processRequestsByIndex :: IntMap (Fan, Request)
   }
   deriving (Show)
 
--- Describes the effect running the response had. Different execeffects can
+-- | Describes the effect running the response had. Different execeffects can
 -- result in different Receipts, and may require different behaviours when
 -- updating Machine state.
 data ExecEffect
-  -- We didn't apply a value (ie, in the case of a new forked process).  The
-  -- attached changeset is just adds.
-  = EEInit { initAid :: ProcessId, initVal :: Pln }
+  -- | We didn't receive a response (ie, in the case of a new forked process).
+  -- The attached changeset is just adds. This will write `ReceiptInit` to the
+  -- event log.
+  = EEInit { initPid :: ProcessId, initVal :: P.Fan }
 
-  -- The response applied a reqId/Pln to the process.
-  | EEDefault { execIdx :: RequestIdx,
-                execVal :: Pln }
-  -- When the Response is a fork, we also have a new forked thread that has to
-  -- be processed.
-  | EEForked { forkedRequestIdx :: RequestIdx,
-               forkedProcess    :: Process,
-               forkedChangeset  :: ExecChangeset,
-               forkedType       :: LogType
-               }
-  | EELocalRecv { recvRequestIdx :: RequestIdx,
-                  recvVal        :: Pln,
-                  causingSend    :: RequestHandle,
-                  recvFrom       :: LocalAddress,
-                  recvTo         :: LocalAddress
-             -- TODO: This needs to deal with remote sends later. Do we have to
-             -- recv exec effects?
-             }
-  -- The response was a kill, and on applying the changeset, we must kill all
-  -- matching processes.
-  | EEKilled { killRequestIdx       :: RequestIdx,
-               killReason           :: Pln,
-               killLoggedTidsKilled :: [ProcessIdx],
-               killKilledChangesets :: [KilledChangeset]
-             }
-  -- Running this request crashed, either because of an explicit crash or
+  -- | When the `Response` is a `Fork`, we also have a new forked thread that
+  -- has to be added to Machine state. A `ReceiptFork` may be
+  | EEForked { forkedRequestId :: RequestId,
+               forkedProcess   :: Process,
+               forkedChangeset :: ExecChangeset }
+
+  -- | When the `Response` is to the implicit 0th Recv, we can record a
+  -- `ReceiptRecv` in the corresponding event log instead of a raw
+  -- `ReceiptVal`.
+  | EERecv { recvRequestId :: RequestId,
+             recvVal       :: Fan,
+             causingSend   :: RequestHandle }
+
+  -- | The response applied a reqId/Val to the process, and will write a
+  -- `ReceiptVal` to the event log.
+  | EEDefault { execId  :: RequestId,
+                execVal :: Fan }
+
+  -- | Running this request crashed, either because of an explicit crash or
   -- because the event hit a timeout or a memory exhaustion situation.
   | EECrashed
   deriving (Show)
 
--- An process can go from nothing to dead
-data LivelinessChange
-  = StillAlive
-  | Shutdown
-  | MemoryExhaustion
-  | Timeout
-  deriving (Eq, Show)
-
--- All the changes that occurred after a Response.
---
+-- | All the changes that occurred by running a `Response`.
 data ExecChangeset = ExecChangeset {
   execChangesetProcessId       :: ProcessId,
 
-  execChangesetAlive           :: LivelinessChange,
-  execChangesetAddedClaims     :: [Claim],
-  execChangesetRemovedClaims   :: [Claim],
+  execChangesetAlive           :: Bool,
   execChangesetAddedRequests   :: [(RequestHandle, Request)],
   execChangesetRemovedRequests :: [(RequestHandle, Request)],
 
   -- Response specific effect: A positive
   execChangesetExecEffect      :: ExecEffect
-
-  -- library change information goes here when that gets added.
   }
   deriving (Show)
 
 -- All the changes that occurred in response to reloading from a snapshot.
 data ReloadChangeset = ReloadChangeset {
   reloadChangesetProcessId     :: ProcessId,
-
-  reloadChangesetAddedClaims   :: [Claim],
   reloadChangesetAddedRequests :: [(RequestHandle, Request)]
-  }
-  deriving (Show)
-
--- All the changes that occurred when an unlogged process is killed by a
-data KilledChangeset = KilledChangeset {
-  killedChangesetProcessId       :: ProcessId,
-  killedChangesetRemovedClaims   :: [Claim],
-  killedChangesetRemovedRequests :: [(RequestHandle, Request)]
   }
   deriving (Show)
 
@@ -239,152 +139,48 @@ data KilledChangeset = KilledChangeset {
 makeFieldLabels ''Process
 makeFieldLabels ''ExecChangeset
 makeFieldLabels ''ReloadChangeset
-makeFieldLabels ''KilledChangeset
+
+getCell :: Fan -> Maybe (Fan, Fan)
+getCell v@P.KLO{} = Just (P.boom v)
+getCell _         = Nothing
 
 -- -----------------------------------------------------------------------
 
-instance ToNoun Pub where
-  toNoun (PUB (PublicKey b)) = toNoun b
+valToRequest :: Fan -> Request
+valToRequest v@(P.ROW xs) =
+  fromMaybe (UNKNOWN v) $ case toList xs of
+    [NAT 0, dst, val] -> ReqCall <$> fromNoun dst <*> pure val
+    [NAT 1, dst, val] -> ReqSend <$> fromNoun dst <*> pure val
+    [NAT 2, exe]      -> pure $ ReqFork exe
+    _                 -> Nothing
+valToRequest v = UNKNOWN v
 
-instance FromNoun Pub where
-  fromNoun n = do
-    b <- fromNoun n
-    guard (length b == 32)
-    pure (PUB $ PublicKey b)
-
-instance ToNoun Key where
-  toNoun (KEY (SecretKey b)) = toNoun b
-
-instance FromNoun Key where
-  fromNoun n = do
-    b <- fromNoun n
-    guard (length b == 64)
-    pure (KEY $ SecretKey b)
-
-instance ToNoun LocalAddress where
-  toNoun (LOCAL a) = toNoun a
-
-instance FromNoun LocalAddress where
-  fromNoun n = LOCAL <$> fromNoun n
-
-instance ToNoun Claim where
-  toNoun (LocalClaim la)        = P.mkRow [toNoun @Nat 0, toNoun la]
-  toNoun (Ed25519Blake3Claim k) = P.mkRow [toNoun @Nat 1, toNoun k]
-
-instance FromNoun Claim where
-  fromNoun n = do
-    r <- getRawRow n
-    claimType <- r V.!? 0 >>= fromNoun @Nat
-    case claimType of
-      0 -> LocalClaim <$> (r V.!? 1 >>= fromNoun)
-      1 -> Ed25519Blake3Claim <$> (r V.!? 1 >>= fromNoun)
-      _ -> Nothing
-
-instance ToNoun BuryWhy where
-  toNoun (WhyKilled val) = P.mkRow [AT 0, val]
-  toNoun WhyShutdown     = AT 1
-  toNoun WhyMissing      = AT 2
-  toNoun WhyReleased     = AT 3
-  toNoun WhyMemory       = AT 4
-  toNoun WhyTimeout      = AT 5
-
-getCell :: Pln -> Maybe (Pln, Pln)
-getCell (PLN _ (P.APP h t)) = Just (P.nodVal h, t)
-getCell _                   = Nothing
-
--- -----------------------------------------------------------------------
-
-valToRequest :: Pln -> Request
-valToRequest n = fromMaybe (UNKNOWN n) $ do
-  case n of
-    --
-    (PLN _ (P.NAT n)) -> case n of
-      -- 1               -> IO {}        [ local_next ]
-      1  -> pure LocalNext
-      -- 9               -> IO Wen       [ when ]
-      9  -> pure When
-      -- 10              -> IO Bar       [ rand ]
-      10 -> pure Rand
-      _  -> Nothing
-
-    (PLN _ (P.DAT (P.ROW xs))) -> case toList xs of
-      -- {2 Exe}         -> IO {}         [ local_fork_log ]
-      [AT 2, exe] -> pure $ ForkLogged exe
-
-      -- {3 Exe}         -> IO {}         [ local_fork_unlog ]
-      [AT 3, exe] -> pure $ ForkUnlogged exe
-
-      -- {4 Nat}         -> IO Why        [ local_bury ]
-      [AT 4, srcN] -> LocalBury <$> fromNoun srcN
-
-      -- {5 Nat Pln}     -> IO {}         [ local_kill ]
-      [AT 5, dstN, val] -> LocalKill <$> fromNoun dstN <*> pure val
-
-      -- {6 Nat Nat Pln} -> IO {}         [ local_send ]
-      [AT 6, srcN, dstN, bodyN] -> do
-        src <- fromNoun srcN
-        dst <- fromNoun dstN
-        pure $ LocalSend $ LocalSendRep src dst bodyN
-
-      -- {7 Nat Nat*}    -> IO {Nat Pln}  [ local_recv ]
-      [AT 7, srcN, dstNs] -> do
-        src <- fromNoun srcN
-        dstVec <- P.getRow dstNs
-        recv <- traverse fromNoun dstVec
-        pure $ LocalRecv $ LocalRecvRep src (setFromList $ V.toList recv)
-
-      -- {8 Wen}         -> IO Wen        [ wait ]
-      [AT 8, timeN] -> Wait <$> fromNoun timeN
-
-      _ -> Nothing
-
-newProcess :: ProcessId -> Pln -> Process
+newProcess :: ProcessId -> Fan -> Process
 newProcess aid v = PROCESS {
   processProcessId = aid,
   processNoun = v,
-  processRequestsByIndex = mempty,
-  processExpectedClaimNoun = P.mkRow []
+  processRequestsByIndex = mempty
   }
 
-readProcess :: Pln -> Maybe (Natural, Pln)
-readProcess n = do
-  r <- getRawRow n
-  lastResp <- r V.!? 0 >>= fromNoun
-  noun <- r V.!? 1
-  pure (lastResp, noun)
-
-reloadProcessSnapshot :: (ProcessIdx, Pln)
+reloadProcessSnapshot :: (ProcessId, Fan)
                       -> IO (ReloadChangeset, Process)
-reloadProcessSnapshot (pidx, val) = do
-  let pid = ProcessId Logged pidx
+reloadProcessSnapshot (pid, val) = do
   (r, s) <- runStateT parseReloadChangeset (newProcess pid val)
   pure (r, s)
 
-killProcess :: Process -> IO KilledChangeset
-killProcess process = evalStateT exec process
-  where
-    exec :: StateT Process IO KilledChangeset
-    exec = do
-      assign' #noun (AT 0)
-      killedChangesetProcessId <- use #processId
-      (_, killedChangesetRemovedClaims) <- parseClaims
-      (_, killedChangesetRemovedRequests) <- parseRequests
-      pure KilledChangeset{..}
-
-
-buildInitialProcess :: ProcessIdx -> Pln -> IO (ExecChangeset, Process)
-buildInitialProcess pidx val = do
-  let pid = ProcessId Logged pidx
+buildInitialProcess :: ProcessId -> Fan -> IO (ExecChangeset, Process)
+buildInitialProcess pid val = do
+  let init = force (val %% toNoun pid)
   runStateT (parseExecChangeset (EEInit pid val))
-            (newProcess pid val)
+            (newProcess pid init)
 
 execResponse :: RequestHandle -> Response
              -> StateT Process IO (Maybe ExecChangeset)
 execResponse reqH response = do
-  validateHandle $ \reqIdx -> do
-    respVal <- liftIO $ responseToVal response
+  validateHandle $ \reqId -> do
+    let respVal = responseToVal response
 
-    let exe s = force (s %% (toNoun reqIdx) %% respVal)
+    let exe s = force (s %% (toNoun reqId) %% respVal)
 
     noun <- use #noun
     result <- liftIO $ timeout thirtySecondsInUs (pure (exe noun))
@@ -395,38 +191,32 @@ execResponse reqH response = do
         assign' #noun result
 
         execEffect <- case response of
-          (Fork op val) -> case op of
-            FOLogged aid     -> makeEEForked reqIdx aid val Logged
-            FOUnlogged aid   -> makeEEForked reqIdx aid val Unlogged
-            FOReplayUnlogged -> pure $ EEDefault reqIdx respVal
-          (RecvLocal sendAt val src dst) ->
-            pure $ EELocalRecv reqIdx respVal sendAt src dst
-          (RunKill reason pids changes) ->
-            pure $ EEKilled reqIdx reason pids changes
-          _ -> pure $ EEDefault reqIdx respVal
+          (RespRecv sendReqh val) -> pure $ EERecv reqId val sendReqh
+          (RespFork aid val)      -> makeEEForked reqId aid val
+          _                       -> pure $ EEDefault reqId respVal
 
         Just <$> parseExecChangeset execEffect
   where
     validateHandle fun = do
-      let (RequestHandle _ reqIdx@(RequestIdx idx)) = reqH
-      byIndex <- use #requestsByIndex
-      case lookup idx byIndex of
-        Nothing             -> pure Nothing
-        Just (storedVal, r) -> fun reqIdx
+      let (RequestHandle _ reqId@(RequestId id)) = reqH
+      case id of
+        0 -> fun reqId
+        _ -> do
+          byIndex <- use #requestsByIndex
+          case lookup id byIndex of
+            Nothing             -> pure Nothing
+            Just (storedVal, r) -> fun reqId
 
-    makeEEForked reqIdx aid val t = do
+    makeEEForked reqId pid val = do
+      let init = force (val %% toNoun pid)
       (ec, process) <- liftIO $ runStateT
-        (parseExecChangeset (EEInit aid val))
-        (newProcess aid val)
-      pure $ EEForked reqIdx process ec t
+        (parseExecChangeset (EEInit pid val))
+        (newProcess pid init)
+      pure $ EEForked reqId process ec
 
     makeTimeout = do
-      -- TODO: This needs to deal with logged vs unlogged. In the case of
-      -- unlogged processes, we need to clean up all requests and claims.
       execChangesetProcessId <- use #processId
-      let execChangesetAlive = Timeout
-          execChangesetAddedClaims = mempty
-          execChangesetRemovedClaims = mempty
+      let execChangesetAlive = True
           execChangesetAddedRequests = mempty
           execChangesetRemovedRequests = mempty
           execChangesetExecEffect = EECrashed
@@ -439,21 +229,16 @@ parseExecChangeset :: ExecEffect
                    -> StateT Process IO ExecChangeset
 parseExecChangeset execChangesetExecEffect = do
   execChangesetProcessId <- use #processId
-  (execChangesetAddedClaims, execChangesetRemovedClaims) <- parseClaims
   (execChangesetAddedRequests, execChangesetRemovedRequests) <-
     parseRequests
 
-  reqs <- use #requestsByIndex
-  let execChangesetAlive = case null reqs of
-        True  -> Shutdown
-        False -> StillAlive
-        -- TODO: MemoryExhaustion are unimplemented in the haskell
+  reqNoun <- getCurrentReqNoun
+  let execChangesetAlive = isJust reqNoun
   pure ExecChangeset{..}
 
 parseReloadChangeset :: StateT Process IO ReloadChangeset
 parseReloadChangeset = do
   reloadChangesetProcessId <- use #processId
-  (reloadChangesetAddedClaims, _) <- parseClaims
 
   -- We associate all requests with the last request in the changelog.
   (reloadChangesetAddedRequests, _) <- parseRequests
@@ -463,18 +248,16 @@ parseReloadChangeset = do
 parseRequests :: StateT Process IO ([(RequestHandle, Request)],
                                   [(RequestHandle, Request)])
 parseRequests = do
-  -- Maybe what's wrong here is that getCurrentReqNoun doesn't pull the
-  -- right thing off processNoun.
   expected <- use #requestsByIndex
-  requests <- use (to (fromMaybe mempty . getCurrentReqNoun . processNoun) )
+  requests <- fromMaybe mempty <$> getCurrentReqNoun
 
   changed <- for (mapToList expected) $ \(i,(v,_)) ->
-      case (requests V.!? i) of
+      case (requests V.!? (i - 1)) of
           Nothing       -> cancelReq i
           Just w | v==w -> pure []
           Just w        -> (++) <$> cancelReq i <*> createReq i w
 
-  new <- for (zip [0..] (toList requests)) $ \(i,v) ->
+  new <- for (zip [1..] (toList requests)) $ \(i,v) ->
       case member i expected of
         False -> createReq i v
         True  -> pure []
@@ -482,13 +265,13 @@ parseRequests = do
   let allReqs = partitionEithers $ concat $ changed ++ new
   pure allReqs
   where
-    createReq :: Int -> Pln
+    createReq :: Int -> Fan
               -> StateT Process IO [ReqChange]
     createReq i v = do
       let req = valToRequest v
       aid <- use #processId
-      let idx = RequestIdx i
-      let handle = RequestHandle aid idx
+      let id = RequestId i
+      let handle = RequestHandle aid id
       modifying #requestsByIndex (insertMap i (v, req))
       pure $ [Left (handle, req)]
 
@@ -496,43 +279,13 @@ parseRequests = do
     cancelReq key = do
       Just (v, req) <- use ( #requestsByIndex % at key )
       aid <- use #processId
-      let handle = RequestHandle aid (RequestIdx key)
+      let handle = RequestHandle aid (RequestId key)
       modifying #requestsByIndex (deleteMap key)
       pure $ [Right (handle, req)]
 
-    -- %req
-    getCurrentReqNoun s = do
-      (_, req) <- getCell s
-      P.getRow req
-
-parseClaims :: StateT Process IO ([Claim], [Claim])
-parseClaims = do
-  n <- use #noun
-  current <- getCurrentClaimNoun <$> use #noun
-  expected <- use #expectedClaimNoun
-  if current == expected then pure ([], [])
-  else do
-    let currentS = rowToClaimSet current
-        expectedS = rowToClaimSet expected
-
-        addedClaims = S.toList $ S.difference currentS expectedS
-        removedClaims = S.toList $ S.difference expectedS currentS
-
-    assign #expectedClaimNoun current
-    pure (addedClaims, removedClaims)
-  where
-    getCurrentClaimNoun s = fromMaybe (P.mkRow []) $ do
-      (inner, req) <- getCell s
-      (_, keys) <- getCell inner
-      pure keys
-
-    rowToClaimSet :: Pln -> Set Claim
-    rowToClaimSet (PLN _ (P.DAT (P.ROW v))) =
-        S.fromList $ catMaybes $ fmap fromNoun $ V.toList v
-    rowToClaimSet _                            = mempty
-
-
-isLogged :: StateT Process IO Bool
-isLogged = use #processId >>= \case
-  ProcessId Logged _   -> pure True
-  ProcessId Unlogged _ -> pure False
+getCurrentReqNoun :: StateT Process IO (Maybe (Vector Fan))
+getCurrentReqNoun = do
+  s <- use (to processNoun)
+  pure $ do
+    (_, req) <- getCell s
+    P.getRow req

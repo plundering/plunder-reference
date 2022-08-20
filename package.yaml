@@ -106,10 +106,12 @@ dependencies:
 - ed25519
 - entropy
 - exceptions
+- focus
 - ghc-prim
 - hashable
 - hashtables
 - heap
+- http-types
 - integer-gmp
 - lmdb
 - megaparsec
@@ -124,11 +126,13 @@ dependencies:
 - random
 - random-shuffle
 - resourcet
+- stm
 - stm-chans
+- stm-containers
 - stm-delay
 - tasty
-- tasty-quickcheck
 - tasty-golden
+- tasty-quickcheck
 - terminal-size
 - text
 - text-builder
@@ -138,6 +142,8 @@ dependencies:
 - unix
 - utf8-string
 - vector
+- wai
+- warp
 
 default-extensions:
 - ApplicativeDo

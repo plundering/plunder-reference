@@ -1,3 +1,13 @@
+/+  pin
+/+  eql
+/+  list
+/+  nat
+/+  bar
+/+  blake3
+/+  row
+/+  com  (",,")
+/+  tar  ("*")
+
 ; Given an expected result and an expression
 ; `[pin args..]`, check that both (pin
 ; args..) and (pinItem args..) are equal to the
@@ -32,7 +42,7 @@
 
 ; (Bar 32 > List Byt)
 = (randGenBytes seed)
-| listConcat
+| listCat
 | listMap listFromRow
 | listMap barBytes
 | randGen seed
@@ -67,9 +77,9 @@ d=(idx 3 abcd)
 ?? check b [idx 1 a,b,c]
 ?? check c [idx 2 a,b,c]
 ?? check 0 [idx 3 a,b,c]
-?? check a [idx 0 1-a-b]
-?? check b [idx 1 1-a-b]
-?? check 0 [idx 2 1-a-b]
+?? check a [idx 0 1-b-a]
+?? check b [idx 1 1-b-a]
+?? check 0 [idx 2 1-b-a]
 ?? check 0 [idx 0 1]
 
 ;;;;;;;;;;
@@ -93,7 +103,7 @@ d=(idx 3 abcd)
 ?? check [] , take add a,b,c
 
 ;; Vectors operations work on any closure
-?? check []    , take 0 put-1-2
-?? check [1]   , take 1 put-1-2
-?? check [1 2] , take 2 put-1-2
-?? check [1 2] , take 3 put-1-2
+?? check []    , take 0 put-2-1
+?? check [1]   , take 1 put-2-1
+?? check [1 2] , take 2 put-2-1
+?? check [1 2] , take 3 put-2-1

@@ -1,6 +1,6 @@
 /+  apply
 /+  bool
-/+  combo
+/+  prim
 /+  either
 /+  eql
 /+  list
@@ -13,6 +13,7 @@
 /+  w32
 /+  tar ("*")
 /+  hax ("#")
+/+  com ("," ",,")
 
 
 ;;;;;;;;;;;;;;;;;
@@ -83,7 +84,7 @@ st
 
 ; welds up to four u8.
 = (u32weld v)
-| if (not | aeq len-v 4)
+| ifNot (aeq len-v 4)
     | die "u32weld requires 4 bytes"
 | u8weld get-v-0
 | u8weld get-v-1
@@ -100,20 +101,26 @@ st
 | if (eql j wid) acc
 @ next (add i 4)
 | loop next inc-j
-| acc | u32weld | splice bv i next
+| acc | u32weld | slice bv i next
+
+; Row W8 > Row W32
+= (bytesToWords bv)
+| if (mod len-bv 4)
+    | die "byte-row length not a multiple of 4"
+@ wid (div len-bv 4)
+| gen wid
+& j
+@ i (mul j 4)
+| u32weld (slice bv i (add i 4))
 
 ; breaks a nat that represents a word into
 ; its little-endian component bytes
-= (wordToBytes a)
-. 0 a (mkRow 4)
-? (go i a acc)
-| if (eql i 4) acc
-| go inc-i (rsh a 8) | acc | dis 0xff a
+(wordToBytes a)=(gen 4 i&(dis 0xff (rsh a (mul 8 i))))
 
 ; Little Endian Byte order
 ; (Row W32 > Row W8)
 = (wordsToBytes wv)
-| concat (map wordToBytes wv)
+| catMap wordToBytes wv
 
 ; > (V8 u32, V16 u32, u64, u32, u32)
 ; > V16 u32
@@ -167,7 +174,7 @@ st
      | get chainingValue i
 | loop inc-i st
 
-(first8words v)=(splice v 0 8)
+(first8words v)=(slice v 0 8)
 
 = | b3OutputNew
     inChain
@@ -198,7 +205,7 @@ st
 @ wid
     | div (roundUp outSize outChunkLen)
           outChunkLen
-| concat
+| cat
 . 0 outSize (mkRow wid)
 ? (loop outputBlockCounter remBytes acc)
 | if (eql outputBlockCounter wid) acc
@@ -240,7 +247,7 @@ st
 = (b3ChunkstNew keyWords chunkCounter flags)
 ,, keyWords
 ,, chunkCounter
-,, replicate 0 b3BlockLen
+,, rep 0 b3BlockLen
 ,, 0
 ,, 0
 ,, flags
@@ -277,7 +284,7 @@ st
     @ c | b3ChunkstPutBlocksCompressed c
         | inc b3ChunkstGetBlocksCompressed-c
     @ c | b3ChunkstPutBlock c
-        | replicate 0 b3BlockLen
+        | rep 0 b3BlockLen
     @ c | b3ChunkstPutBlockLen c 0
     c
 @ want | sub b3BlockLen b3ChunkstGetBlockLen-c
@@ -342,7 +349,7 @@ st
 (b3HasherPutCvStack h cv)=(put h 2 cv)
 
 = (b3HasherNewInternal keyWords flags)
-| if not(eql 8 | len keyWords)
+| ifNot (eql 8 len-keyWords)
     | die "Incorrect length of keyWords"
 ,, b3ChunkstNew keyWords 0 flags
 ,, keyWords
@@ -363,7 +370,7 @@ st
 = (b3HasherPopStack hSt)
 ! listCase (b3HasherGetCvStack hSt)
    | die """Trying to pop empty stack
-& {! top res}
+& (! top res)
 | (top, b3HasherPutCvStack hSt res)
 
 ; "Section 5.1.2 of the blake3 spec explains
@@ -447,6 +454,18 @@ st
 ; handles entire operation for one row.
 (blake3 v)=(b3Finalize b3HasherUpdate-b3HasherNew-v 32)
 
+
+;;;;;;;;;;;
+;; Tests ;;
+;;;;;;;;;;;
+
+/+  bar ("#x" barCat bytesBar)
+/+  cord (cordToRow)
+
+?? eql | barCat
+       ,, x#7470ea5654831e01ffc04ee0e43a32fb
+       ,, x#90227162dc0faaa14f9627d8f5c718f7
+   (| bytesBar | blake3 | cordToRow "fdsafdsa")
 
 ;;;;;;;;;;;;;
 ;; Exports ;;

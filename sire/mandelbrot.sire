@@ -1,6 +1,16 @@
 ;;; We emulate floating point math with by using signed integers with
 ;;; a fixed point, so that 10.000 is floating 1.0.
 
+/+  w48
+/+  row
+/+  com
+/+  bool
+/+  eql
+/+  nat
+/+  tar
+/+  list (digits)
+/+  cord (cordFromRow)
+
 = natFp-x | iMul48 x 10000
 = addFp   | iAdd48
 = subFp   | iSub48
@@ -285,27 +295,26 @@ black=[0 0 0]
 | get plasmaColors o
 
 = (mandelbrot w h)
-@ fpW | natFp w
-@ fpH | natFp h
+@ fpW natFp-w
+@ fpH natFp-h
+| gen h
+? (m_line y)
 | gen w
-& y
-| gen w
-& x
+? (m_pixel x)
 @ scrX | natFp x
 @ scrY | natFp y
 @ cr | subFp (mulFp (fracFp scrX fpW) 25000) 20000
 @ ci | subFp (mulFp (fracFp scrY fpH) 25000) 12500
 . 0 0 0
-? (loop i x0 y0)
+? (m_loop i x0 y0)
 @ xx | mulFp x0 x0
 @ yy | mulFp y0 y0
-| if (gte i maxIter)
-  | black
+| if (gte i maxIter) black
 | if not-(iLth48 addFp-xx-yy 40000)
-  | calcColor i
+    | calcColor i
 @ x1 (addFp subFp-xx-yy cr)
 @ y1 (addFp (iMul48 2 (mulFp x0 y0)) ci)
-| loop inc-i x1 y1
+| m_loop inc-i x1 y1
 
 spc=' '
 nl=10
@@ -313,7 +322,7 @@ nl=10
 ; Probably better to just do this to all of `plasmaColors` up front?
 = (renderColor trip)
 * a,b,c trip
-| concat
+| cat
 ,, digits-a
 ,, [spc]
 ,, digits-b
@@ -324,18 +333,20 @@ nl=10
 ; TODO use bars instead of byte-vectors.
 = (mandelbrotPpm w h)
 @ header
-  | concat
-  ,, [%P %3 nl nl]
-  ,, digits-w
-  ,, [spc]
-  ,, digits-h
-  ,, [nl %2 %5 %5 nl]
+    | cat
+    ,, [%P %3 nl nl]
+    ,, digits-w
+    ,, [spc]
+    ,, digits-h
+    ,, [nl %2 %5 %5 nl]
 @ body
-  | concat
-  | map ln&(weld concatMap-renderColor-ln [nl])
-  | mandelbrot w h
-| implode
+    | cat
+    | map ln&(weld catMap-renderColor-ln [nl])
+    | mandelbrot w h
+| cordFromRow
 | weld header body
 
+| mandelbrotPpm 8 8
 ; mandelbrotPpm 16 16
-| mandelbrotPpm 4 4
+; mandelbrotPpm 8 8
+; mandelbrotPpm 4 4

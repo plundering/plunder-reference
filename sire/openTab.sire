@@ -1,18 +1,24 @@
+/+  prim
 /+  nat        (gte)
 /+  bool       (if and or)
-/+  combo      (apply)
+/+  prim       (apply)
 /+  eql        (eql neq)
 /+  either     (LEFT RIGHT eitherCase eitherOpen)
 /+  list_core  (listCase)
-/+  row        (len idx switch zipWith rowApply)
-/+  tab        (tabIdx tabFromRow tabToList)
-/+  macro      (eitherMap eitherRowSequence eitherRowTraverse)
-/+  macro      (cordConcat showNat HEIR WORD)
-/+  macro      (rexGetNode rexGetWord)
-/+  macro      (cnsE appE letE gensymE)
-/+  macro      (rexGetNodeFolded)
+/+  row        (len idx switch zipWith rowApply ",")
+/+  tab        (tabIdx tabFromPairs tabToList)
+/+  either     (eitherMap)
+/+  sire       (eitherRowSequence eitherRowTraverse)
+/+  cord       (cordCat)
+/+  sire       (showNat)
+/+  rex        (HEIR WORD)
+/+  rex        (rexGetNode rexGetWord)
+/+  sire       (cnsE appE letE)
+/+  macro      (gensymE)
+/+  rex        (rexGetNodeFolded)
 /+  hax        ("#")
-/+  tic        ("`")
+/+  rex        ("`")
+/+  com        (",,")
 /+  openRow    ("#openRow" "openRowE")
 /+  openRow    ("readSymbol" "okaySymbol")
 
@@ -22,7 +28,7 @@
 ;;;;;;;;;;;;;;;;;;;;;
 
 = (readSpecificRuneFolded expect rex k)
-@ err | LEFT [rex cordConcat-["Expected a '" expect "' node"]]
+@ err | LEFT [rex cordCat-["Expected a '" expect "' node"]]
 ! rexGetNodeFolded rex err
 & (rune params)
 | if (neq expect rune) err
@@ -33,7 +39,7 @@
 = (readTabPatternBinder rex)
 ! readSpecificRuneFolded "=" rex
 & tisParams
-@ badWidth (LEFT [rex "Tab-Binder must have form {= k} or {= k v}"])
+@ badWidth (LEFT [rex "Tab-Binder must have form (= k) or (= k v)"])
 | switch (len tisParams) badWidth
 ,, badWidth
 ,,
@@ -53,14 +59,15 @@
 ! readSpecificRuneFolded "%" rex
 & cenParams
 | if (neq 1 len-cenParams)
-   (LEFT [rex "Tab-Pattern expects % rune with one parameter"])
+    | LEFT-[rex "Tab-Pattern expects % rune with one parameter"]
 ! readSpecificRuneFolded "," idx-0-cenParams
 & comParams
-| eitherMap tabFromRow
+| eitherMap tabFromPairs
 | eitherRowTraverse readTabPatternBinder comParams
 
-(fromEither left right val)={! eitherCase val left right}
+(fromEither left right val)=(! eitherCase val left right)
 
+; TODO Move this elsewhere
 = (readNodeMerged rex parsers k)
 @ nonNode LEFT-[rex "Expected a node"]
 ! rexGetNodeFolded rex nonNode
@@ -68,16 +75,15 @@
 | if (neq len-parsers len-kids)
    | LEFT
    , rex
-   | cordConcat
+   | cordCat
    ,, "Expecting "
    ,, showNat len-parsers
    ,, " kids"
-! eitherOpen {eitherRowSequence | zipWith apply parsers kids}
+! eitherOpen (| eitherRowSequence | zipWith apply parsers kids)
 & params
 | rowApply k params ;; TODO Can I inline this somehow?
 
 = (openTabE patterns tmpIdn buildExp bodyExp)
-; trk [%openTabE %[=patterns =tmpIdn =buildExp =bodyExp]]
 | letE tmpIdn buildExp
 . tabToList-patterns
 ? (go pats)
@@ -101,7 +107,7 @@
 = ("#openTab" env nex kids heir)
 ! readOpenTabExp (HEIR "*" kids heir)
 & (pats buildExp bodyExp)
-@ tmpIdn (gensymE "tab")
+@ tmpIdn (gensymE nex)
 | RIGHT [1 (openTabE pats tmpIdn buildExp bodyExp)]
 
 
@@ -123,4 +129,6 @@
 ;; Exports ;;
 ;;;;;;;;;;;;;
 
-^-^ "#openTab" "isOpenTabExp" "openTabE" "readOpenTabExp"
+^-^ "#openTab"
+^-^ isOpenTabExp openTabE readOpenTabExp
+^-^ readNodeMerged

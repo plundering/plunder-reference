@@ -1,97 +1,36 @@
-/+  combo      (apply)
+/+  prim       (apply)
 /+  bool       (if)
 /+  eql        (eql neq)
-/+  either     (LEFT RIGHT eitherCase eitherOpen)
+/+  either     (LEFT RIGHT eitherCase eitherOpen eitherMap)
 /+  apply      (idx len)
-/+  row        (weld switch zipWith map turn rowApply)
+/+  row        (weld switch zipWith map turn rowApply ",")
 /+  list       (NIL CONS listCase listToRowReversed listFromRow digits)
-/+  tab        (tabToRow)
-/+  cord       (cordWeld cordConcat)
+/+  tab        (tabToPairs)
+/+  cord       (cordWeld cordCat)
 
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; Some Monadic Operations on `Either` ;;
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+/+  rex        (FAIL NODE HEIR WORD CORD PAGE EBED)
+/+  rex        (rexCase rexGetNode rexGetWord rexGetText)
+/+  rex        (isWord)
+/+  rex        (mkHeir mergeHeir rexGetNodeFolded)
+/+  rex        ("`")
 
-= (eitherMap f val)
-! eitherCase val LEFT (x & RIGHT f-x)
-
-;; sequence :: Row (Either a b) -> Either a (Row b)
-= (eitherRowSequence results)
-. NIL listFromRow-results
-? (loop acc rest)
-! listCase rest
-   RIGHT!(listToRowReversed acc)
-& (eth more)
-! eitherCase eth LEFT
-& x (loop (CONS x acc) more)
-
-(eitherRowTraverse f xs)=(eitherRowSequence map-f-xs)
-
-?? | eql LEFT-"hi"
-   | eitherRowSequence [RIGHT-3 LEFT-"hi" RIGHT-4]
-
-?? | eql RIGHT-[3 4 5]
-   | eitherRowSequence [RIGHT-3 RIGHT-4 RIGHT-5]
+/+  sire       (eitherRowSequence eitherRowTraverse)
 
 
 ;;;;;;;;;;;;;;;;;;;;;
 ;; Macro Utilities ;;
 ;;;;;;;;;;;;;;;;;;;;;
 
-(showNat n)=(cordConcat digits-n)
+(showNat n)=(cordCat digits-n)
 
-= (EROR mesg)           | mesg
-= (NODE rune kids)      | [0 rune kids]
-= (HEIR rune kids heir) | [0 rune kids heir]
-= (WORD text)           | [1 text]
-= (TEXT text)           | [2 text]
-= (PAGE text)           | [3 text]
-= (VRAW cnst)           | [4 cnst]
-
-= (mkHeir rune kids heir)
-| if eql-0-heir (NODE rune kids)
-| HEIR rune kids heir
-
-= {! rexCase rex node bare text page embd}
-| switch idx-0-rex 0
-,, ! node idx-1-rex idx-2-rex idx-3-rex
-,, ! bare idx-1-rex
-,, ! text idx-1-rex
-,, ! page idx-1-rex
-,, ! embd idx-1-rex
-
-= {! rexGetNode rex fb node}
-! rexCase rex node (_ & fb) (_ & fb) (_ & fb) (_ & fb)
-
-= {! rexGetWord rex fb bare}
-! rexCase rex (_ _ _ & fb) bare (_ & fb) (_ & fb) (_ & fb)
-
-= {! rexGetText rex fb text}
-! rexCase rex (_!_!_ & fb) (!_ & fb) text (!_ & fb) (!_ & fb)
-
-= (natE n)     | WORD showNat-n
-= (varE v)     | WORD v
-= (cnsE v)     | VRAW v
-= (appE xs)    | NODE "|" xs
-= (appE2 x y)  | NODE "|" [x y]
-= (vecE vals)  | NODE ',' vals
-= (letE i x b) | HEIR "@" [i x] b
-= (txtE t)     | TEXT t
 = (gensymE n)  | WORD (cordWeld "_g" showNat-n)
 
-= (isWord rex) (eql 1 idx-0-rex)
-
-= (mergeHeir kids heir)
-| if eql-0-heir kids (weld kids ,heir)
-
-= {! rexGetNodeFolded rex fb node}
-@ folded & (rune kids cont)
-         ! node rune (mergeHeir kids cont)
-! rexCase rex folded (!_ & fb) (!_ & fb) (!_ & fb) (!_ & fb)
+= (vecE vals)
+| NODE ',' vals
 
 ; (Tab Rex > Rex)
 = (tabE tab)
-@ kvs | turn tabToRow-tab
+@ kvs | turn tabToPairs-tab
       & kv
       @ k idx-0-kv
       @ v idx-1-kv
@@ -107,10 +46,10 @@
 @ rex (mkHeir rune xs mK)
 @ arg mergeHeir-xs-mK
 | if  | neq len-argParsers len-arg
-   | LEFT , rex | cordConcat
-                ,, "Expecting "
-                ,, showNat len-argParsers
-                ,, " parameters"
+   | LEFT , rex | cordCat
+                , "Expecting "
+                  (showNat len-argParsers)
+                  " parameters"
 ! eitherOpen
    | eitherRowSequence
    | zipWith apply argParsers arg
@@ -122,10 +61,10 @@
 @ rex (mkHeir rune xs mK)
 @ arg mergeHeir-xs-mK
 | if (neq len-argParsers len-arg)
-   | LEFT , rex | cordConcat
-                ,, "Expecting "
-                ,, showNat len-argParsers
-                ,, " parameters"
+   | LEFT , rex | cordCat
+                , "Expecting "
+                  (showNat len-argParsers)
+                  " parameters"
 ! eitherOpen
    | eitherRowSequence
    | zipWith apply argParsers arg
@@ -134,8 +73,6 @@
 | rowApply fun-nex params
 
 ^-^ simpleMacro gensymMacro
-^-^ eitherMap eitherRowSequence eitherRowTraverse cordWeld cordConcat
-^-^ showNat EROR NODE HEIR WORD TEXT PAGE VRAW mkHeir rexCase rexGetNode
-^-^ rexGetWord rexGetText natE varE cnsE appE appE2 vecE letE txtE
-^-^ gensymE mergeHeir rexGetNodeFolded tabE
+^-^ eitherRowSequence eitherRowTraverse
+^-^ vecE tabE gensymE
 ^-^ isWord

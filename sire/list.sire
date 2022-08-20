@@ -1,12 +1,12 @@
 /+  apply      (idx)
-/+  bool       (if ifNot and or not T)
-/+  combo      (apply supply)
+/+  bool       (if ifNot and or not true)
+/+  prim       (apply supply)
 /+  eql        (eql)
 /+  list_core  (CONS NIL listCase listHead listSafeHead listUnsafeHead)
-/+  nat        (inc dec mod div add aeqZero lth blockWeld)
-/+  prim       (seq)
+/+  nat        (inc dec mod div add lth)
+/+  prim       (seq isNat)
 /+  row        (foldl foldr)
-/+  row        (mkRow)
+/+  row        (cow ",")
 
 = (listFoldl f z l)
 ! listCase l z
@@ -29,10 +29,10 @@
 
 = (listLen l)           | listFoldr (x acc & inc acc) 0 l
 = (listSum l)           | listFoldr add 0 l
-= (listToRow l)         | listFoldl apply mkRow-(listLen l) l
-= (listToRowReversed l) | listFoldr supply mkRow-(listLen l) l
+= (listToRow l)         | listFoldr supply cow-(listLen l) l
+= (listToRowReversed l) | listFoldl apply cow-(listLen l) l
 = (listFromRow v)       | foldr CONS NIL v
-= (listAnd v)           | listFoldr and T v
+= (listAnd v)           | listFoldr and true v
 = (listOr v)            | listFoldr or 0 v
 = (listSum v)           | listFoldr add 0 v
 = (listAll f v)         | listAnd listMap-f-v
@@ -46,11 +46,11 @@
 ! CONS x (listWeld xs b)
 
 ; Lis (Lis a) > Lis a
-= (listConcat ls)
+= (listCat ls)
 ! listCase ls NIL
 & (x xs)
 | listWeld x
-| listConcat xs
+| listCat xs
 
 = (listTake num lis)
 | ifNot num NIL
@@ -64,6 +64,7 @@
 ! listCase lis NIL
 | (x xs & listDrop dec-num xs)
 
+; TODO This does not belong here
 ; Convert a nat into a list of digits.
 ; TODO: Use `until`?
 = (listDigits num)
@@ -74,7 +75,7 @@
 | ifNot mor acc
 @ char (add (mod mor 10) "0")
 @ left (div mor 10)
-| loop left {! CONS char acc}
+| loop left (! CONS char acc)
 
 ; Convert a nat into a row of digits.
 = (digits num) (listToRow listDigits-num)
@@ -87,7 +88,7 @@
 ! CONS f-a-b
   (listZipWith f as bs)
 
-(listZip a b)=(listZipWith R2 a b)
+(listZip a b)=(listZipWith (0 0 3 0) b a)
 
 ?? @ expect  ! CONS [3 4] ! CONS [4 5] NIL
    @ compute | listZip listFromRow-[3 4] listFromRow-[4 5]
@@ -96,10 +97,10 @@
 = (listFilter f lis)
 ! listCase lis NIL
 & (x xs)
-| if f-x {! CONS x listFilter-f-xs}
+| if f-x (! CONS x listFilter-f-xs)
 | listFilter f xs
 
-(listNull lis)=(aeqZero idx-0-lis)
+(listNull xs)=(isNat xs)
 
 ;; TODO If I implement inline lambdas, can I use a `list` destructuring
 ;;      function to generate this same code?  That would be useful
@@ -137,6 +138,6 @@
 ^-^
 ^-^ listFoldl listFoldr listMap listTurn listLen listSum listToRow
 ^-^ listToRowReversed listFromRow listAnd listOr listSum listAll listAny
-^-^ listHas listEnumFrom listWeld listConcat listTake listDrop listDigits
+^-^ listHas listEnumFrom listWeld listCat listTake listDrop listDigits
 ^-^ digits listZipWith listZip listFilter listNull listMinimumOn listSortOn
 ^-^ sortOn

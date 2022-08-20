@@ -22,14 +22,14 @@ import Loot.Types
 
 import Data.List    ((!!))
 import Loot.Backend (isValCodeShaped)
-import Plun         ((%%), Pln)
+import Plun         ((%%), Fan)
 
 import qualified Data.Foldable as Foldable
 
 
 -- Types -----------------------------------------------------------------------
 
-type HasEnv = (?env :: Map Symb Pln)
+type HasEnv = (?env :: Map Symb Fan)
 
 
 -- Desugaring ------------------------------------------------------------------
@@ -99,7 +99,7 @@ desugarBod = go
                        where n' = n+1
                              e' = insertMap v n e
 
-    resolve :: Symb -> Pln
+    resolve :: Symb -> Fan
     resolve k = fromMaybe (0 %% 0 %% 0) (lookup k ?env)
 
     raw :: Int -> Val Symb -> Bod Symb

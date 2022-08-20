@@ -168,10 +168,12 @@ wrapHeir x                       = rexLine' x
 rexLineBuilder :: RexColor => Rex -> TB.Builder
 rexLineBuilder = rexLine'
 
+barNest :: RexColor => [TB.Builder] -> TB.Builder
+barNest [x] = parens [TB.text "|", x]
+barNest xs  = parens xs
+
 parens :: RexColor => [TB.Builder] -> TB.Builder
-parens []  = cNest "{}"
-parens [x] = cNest "{" <> x <> cNest "}"
-parens xs  = cNest "(" <> intercalate " " xs <> cNest ")"
+parens xs = cNest "(" <> intercalate " " xs <> cNest ")"
 
 rexLine' :: RexColor => Rex -> TB.Builder
 rexLine' = go
@@ -192,12 +194,9 @@ rexLine' = go
         SHUT_INFIX  -> intercalate (cRune r) (wrapRex <$> ps)
         NEST_INFIX  -> parens $ intersperse (cRune r) (infixApp <$> ps)
         NEST_PREFIX -> case r of
-          "|" -> parens (go <$> ps)
+          "|" -> barNest (go <$> ps)
           "," -> brackets (go <$> ps)
-          _   -> curlies (cRune r : fmap go ps)
-
-  curlies :: [TB.Builder] -> TB.Builder
-  curlies xs = cNest "{" <> intercalate " " xs <> cNest "}"
+          _   -> parens (cRune r : fmap go ps)
 
   brackets :: [TB.Builder] -> TB.Builder
   brackets xs = cNest "[" <> intercalate " " xs <> cNest "]"

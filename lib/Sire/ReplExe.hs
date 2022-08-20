@@ -21,47 +21,89 @@ import Loot.Backend
 import System.Directory
 
 import Control.Monad.Except    (ExceptT(..), runExceptT)
-import Control.Monad.State     (evalStateT)
-import Control.Monad.State     (get)
-import Control.Monad.State     (StateT(..))
+import Control.Monad.State     (StateT(..), evalStateT, get)
 import Data.ByteString.Builder (byteStringHex, toLazyByteString)
 import Data.Text.IO            (hPutStr, hPutStrLn)
 import Loot.ReplExe            (printValue, showPlun)
 import Loot.Sugar              (resugarVal)
-import Loot.Syntax             (valRex, joinRex, symbRex)
-import Loot.Types              (Rul(..), Val(..), Bod(..), LawName(LN))
+import Loot.Syntax             (joinRex, symbRex, valRex)
+import Loot.Types              (Bod(..), LawName(LN), Rul(..), Val(..))
 import Optics.Zoom             (zoom)
-import Plun                    (pattern AT, (%%))
+import Plun                    ((%%))
 import Rex.Lexer               (isRuneChar)
 
-import qualified Data.Map  as M
-import qualified Data.Set  as S
-import qualified Plun      as P
-import qualified Runner    as Run
+import qualified Data.Map as M
+import qualified Data.Set as S
+import qualified Plun     as P
+import qualified Runner   as Run
+
+import qualified Network.HTTP.Types       as W
+import qualified Network.Wai              as W
+import qualified Network.Wai.Handler.Warp as W
 
 --------------------------------------------------------------------------------
 
-replActor :: MVar Pln -> MVar (Pln, Pln) -> Run.Ship -> IO a
+replActor :: MVar Fan -> MVar (Fan, Fan) -> Run.Ship -> IO a
 replActor mRequest mReply initShip =
     evalStateT loop initShip
   where
     loop = do
         -- putStrLn "replActor: READMVAR"
         reqVal <- takeMVar mRequest
-        assign #noun (AT 0 %% reqVal)
+        assign #noun (P.NAT 0 %% reqVal)
         Run.execFx
         Run.getResponse' >>= putMVar mReply
         loop
 
+vHTTP :: IORef (Maybe (Map ByteString (ByteString, LByteString)))
+vHTTP = unsafePerformIO (newIORef Nothing)
+
+{-
+data HWRequest a r
+  = HWR { hwrData     :: !a
+        , hwrCancel   :: !(MVar ())
+        , hwrResponse :: !(MVar r)
+        }
+-}
+
+-- data Hardware a r = HWRequest a r -> IO ()
+
+-- servHTTP :: HWRequest (Map Nat (Nat, Nat))
+
+-- TODO This should submit a request to the HTTP hardware
+--
+-- TODO How do I add a finalizer so that exceptions (CancelThread in particular)
+-- cause the cancel MVar to be filled (tryPutMVar).
+-- makeRequest :: Hardware a r -> a -> Async r
+-- makeRequest = error "TODO"
+
 main :: IO ()
 main = colorsOnlyInTerminal do
+    writeIORef vHTTP
+        $ Just
+        $ M.fromList
+        [ ("/index.html", ("text/html", "hello"))
+        , ("/",           ("text/html", "hello"))
+        ]
+
+    let notFound   = W.responseLBS W.notFound404 [] "not found"
+    let okay ty bd = W.responseLBS W.ok200 [("Content-Type",ty)] bd
+    let resp Nothing       = notFound
+        resp (Just(ty,bd)) = okay ty bd
+    _erv <- async $ do
+        W.run 8888 \req k -> do
+            let pax = W.rawPathInfo req
+            tab <- readIORef vHTTP
+            k (resp $ maybe Nothing (lookup pax) tab)
+
+
     filz <- fmap unpack <$> getArgs
 
     plunActor <- do
         mReq <- newEmptyMVar
         mRsp <- newEmptyMVar
 
-        (inq, ship) <- Run.newTopShip "sire" Nothing (AT 0)
+        (inq, ship) <- Run.newTopShip "sire" Nothing (P.NAT 0)
 
         tid <- async (replActor mReq mRsp ship)
 
@@ -106,9 +148,9 @@ runBlockPlun
     :: RexColor
     => Handle
     -> Bool
-    -> (Pln -> IO (Pln, Pln))
+    -> (Fan -> IO (Fan, Fan))
     -> IORef (Map Symb Global)
-    -> IORef (Map Text Pln)
+    -> IORef (Map Text Fan)
     -> Block
     -> IO ()
 runBlockPlun h okErr actor vEnv vMac block = do
@@ -126,9 +168,9 @@ runBlockPlun h okErr actor vEnv vMac block = do
 runBlock
     :: RexColor
     => Handle
-    -> (Pln -> IO (Pln, Pln))
+    -> (Fan -> IO (Fan, Fan))
     -> IORef (Map Symb Global)
-    -> IORef (Map Text Pln)
+    -> IORef (Map Text Fan)
     -> Block
     -> ExceptT Text IO ()
 runBlock h actor vEnv vMacros (BLK _ _ eRes) = do
@@ -163,7 +205,7 @@ runFile baseName = do
     fil <- readIORef vFiles
     writeIORef vFileStack (baseName:stk)
 
-    let actor :: Pln -> IO (Pln, Pln)
+    let actor :: Fan -> IO (Fan, Fan)
         actor _ = error "No effects allowed in libraries"
 
     res <- case lookup baseName fil of
@@ -183,7 +225,7 @@ runFile baseName = do
     pure res
 
 openModule
-    :: IORef (Map Text Pln)
+    :: IORef (Map Text Fan)
     -> Map Symb Global
     -> Map Symb Global
     -> IO (Map Symb Global)
@@ -193,7 +235,7 @@ openModule vMacros moduleVal scope =
 
 -- TODO Somehow handle inlining
 bindVal
-    :: IORef (Map Text Pln)
+    :: IORef (Map Text Fan)
     -> Symb
     -> Global
     -> Map Symb Global
@@ -208,12 +250,18 @@ bindVal vMacros sym glo scope = do
 
 runCmd :: RexColor
        => Handle
-       -> (Pln -> IO (Pln, Pln))
+       -> (Fan -> IO (Fan, Fan))
        -> Map Symb Global
-       -> IORef (Map Text Pln)
+       -> IORef (Map Text Fan)
        -> XCmd
        -> ExceptT Text IO (Map Symb Global)
 runCmd h runFx scope vMacros = \case
+    EFFECT KAL_LIST_REQUESTS       -> error "TODO"
+    EFFECT (KAL_CANCEL_REQUEST k)  -> error "TODO" k
+    EFFECT (KAL_MAKE_REQUEST k x)  -> error "TODO" k x
+    EFFECT KAL_LIST_RESPONSES      -> error "TODO"
+    EFFECT (KAL_DELETE_RESPONSE k) -> error "TODO" k
+
     FILTER symbs -> do
         for_ symbs \s -> do
             unless (M.member s scope) do
@@ -269,6 +317,7 @@ runCmd h runFx scope vMacros = \case
                 modifyIORef' vMacros (insertMap txt pln)
             _ -> pure ()
         runCmd h runFx (insertMap nam glo scope) vMacros (DEFINE more)
+
     DEFINE (BIND_FUN nam f : more) -> do
         raw <- liftIO $ resolveTopFun f
         fun <- traverse (getRef scope) raw
@@ -281,6 +330,7 @@ runCmd h runFx scope vMacros = \case
             _ -> pure ()
         let scope' = insertMap nam (G pln (Just fun)) scope
         runCmd h runFx scope' vMacros (DEFINE more)
+
     SAVEV v   -> do
         glo@(G pln _) <- resolveAndInjectExp scope v
         hom <- liftIO getHomeDirectory
@@ -289,6 +339,7 @@ runCmd h runFx scope vMacros = \case
         let idn = utf8Nat (encodeBtc has)
         liftIO $ printValue h True (Just idn) pln
         pure $ insertMap idn glo scope
+
     IOEFF i r fx -> do
         G pln _ <- resolveAndInjectExp scope fx
         liftIO $ printValue h True (Just $ utf8Nat "__FX__") pln
@@ -332,7 +383,7 @@ resolveAndInjectExp scope ast = do
     (_, _, mInline) <- expBod (1, mempty) expr
     pure $ G (valPlun (REF pln `APP` NAT 0)) mInline
 
-injectFun :: Fun Pln Refr Global -> ExceptT Text IO Pln
+injectFun :: Fun Fan Refr Global -> ExceptT Text IO Fan
 injectFun (FUN self nam args exr) = do
     (_, b, _) <- expBod (nexVar, tab) exr
     let rul = RUL nam (fromIntegral ari) b
@@ -351,6 +402,7 @@ numRefs k = \case
     ENAT{}                 -> 0
     EAPP f x               -> go f + go x
     ELIN xs                -> sum (go <$> xs)
+    EBAM xs                -> sum (go <$> xs)
     EREC _ v b             -> go v + go b
     ELET _ v b             -> go v + go b
     ELAM (FUN _ _ _ b)     -> min 1 (go b)
@@ -358,19 +410,16 @@ numRefs k = \case
     --- it will be lambda-lifted (hence only used once).
 
     -- TODO Kill these features:
-    EBAR{}                 -> 0
-    ECOW{}                 -> 0
     ECAB{}                 -> 0
     ETAB ps                -> sum (go <$> ps)
-    EVEC vs                -> sum (go <$> vs)
   where
     go = numRefs k
 
 optimizeLet
-    :: (Int, IntMap (Int, Bod Global, Maybe (Fun Pln Refr Global)))
+    :: (Int, IntMap (Int, Bod Global, Maybe (Fun Fan Refr Global)))
     -> Refr
-    -> Exp Pln Refr Global
-    -> Exp Pln Refr Global
+    -> Exp Fan Refr Global
+    -> Exp Fan Refr Global
     -> ExceptT Text IO (Int, Bod Global, Inliner)
 optimizeLet s@(nex, tab) refNam expr body = do
   let recurRef = numRefs k expr > 0
@@ -408,7 +457,6 @@ optimizeLet s@(nex, tab) refNam expr body = do
 trivialExp :: Exp v a b -> Bool
 trivialExp = \case
     ENAT n -> n < 4294967296
-    EBAR _ -> False
     EREF _ -> True
     EVAR _ -> True
     _      -> False
@@ -435,26 +483,24 @@ freeVars = goFun mempty
         ELAM f     -> goFun ours f
         EAPP f x   -> go ours f <> go ours x
         ELIN xs    -> concat (go ours <$> xs)
+        EBAM xs    -> concat (go ours <$> xs)
         EREC n v b -> let ours' = insertSet n ours
                       in go ours' v <> go ours' b
         ELET n v b -> let ours' = insertSet n ours
                       in go ours' v <> go ours' b
 
         -- TODO Kill these features
-        EBAR{}     -> mempty
-        ECOW{}     -> mempty
         ECAB{}     -> mempty
         ETAB ds    -> concat (go ours <$> toList ds)
-        EVEC vs    -> concat (go ours <$> vs)
 
-data Global = G { gPlun :: Pln, gInline :: Inliner }
+data Global = G { gPlun :: Fan, gInline :: Inliner }
   deriving (Generic)
 
 instance Show Global where
-  show (G (AT n) _) = "(AT " <> show n <> ")"
-  show (G pln _) = "(G " <> show (P.valName pln) <> ")"
+  show (G (P.NAT n) _) = "(AT " <> show n <> ")"
+  show (G pln _)       = "(G " <> show (P.valName pln) <> ")"
 
-type Inliner = Maybe (Fun Pln Refr Global)
+type Inliner = Maybe (Fun Fan Refr Global)
 
 
 --  TODO Don't lift trivial aliases, just inline them (small atom, law)
@@ -462,8 +508,8 @@ type Inliner = Maybe (Fun Pln Refr Global)
 --       new binding.
 lambdaLift
     :: (Int, IntMap (Int, Bod Global, Inliner))
-    -> Fun Pln Refr Global
-    -> ExceptT Text IO (Exp Pln Refr Global)
+    -> Fun Fan Refr Global
+    -> ExceptT Text IO (Exp Fan Refr Global)
 lambdaLift _s f@(FUN self tag args body) = do
     let lifts = toList (freeVars f) :: [Refr]
     let liftV = EVAR <$> lifts
@@ -485,8 +531,8 @@ lambdaLift _s f@(FUN self tag args body) = do
 -- `uniplate` or whatever.
 inlineTrivial
     :: (b, IntMap (Int, Bod Global, Inliner))
-    -> Fun Pln Refr Global
-    -> Fun Pln Refr Global
+    -> Fun Fan Refr Global
+    -> Fun Fan Refr Global
 inlineTrivial s@(_, tab) (FUN self tag args body) =
     FUN self tag args (go body)
   where
@@ -505,19 +551,17 @@ inlineTrivial s@(_, tab) (FUN self tag args body) =
         ELAM f     -> ELAM (goFun f)
         EAPP f x   -> EAPP (go f) (go x)
         ELIN xs    -> ELIN (go <$> xs)
+        EBAM xs    -> EBAM (go <$> xs)
         EREC n v b -> EREC n (go v) (go b)
         ELET n v b -> ELET n (go v) (go b)
 
         -- TODO Kill these features
-        EBAR b     -> EBAR b
-        ECOW n     -> ECOW n
         ECAB k     -> ECAB k
         ETAB ds    -> ETAB (go <$> ds)
-        EVEC vs    -> EVEC (go <$> vs)
 
 expBod
     :: (Int, IntMap (Int, Bod Global, Inliner))
-    -> Exp Pln Refr Global
+    -> Exp Fan Refr Global
     -> ExceptT Text IO (Int, Bod Global, Inliner)
 expBod s@(_, tab) = \case
     EBED b         -> do let ari = P.trueArity b
@@ -548,6 +592,8 @@ expBod s@(_, tab) = \case
             ((a, BCNS fk, _),(_,BCNS xk,_)) -> (a-1, BCNS (APP fk xk), Nothing)
             ((a, fv, _),     (_,xv,_)     ) -> (a-1, BAPP fv xv,       Nothing)
 
+    EBAM _ -> error "Implement static application"
+
     ELIN (f :| []) -> expBod s f
 
     ELIN (f :| (x:xs)) ->
@@ -561,32 +607,16 @@ expBod s@(_, tab) = \case
     EREC n v b -> optimizeLet s n v b
     ELET n v b -> optimizeLet s n v b
 
-    -- TODO Kill these features:
-    EBAR n     -> pure (1, BCNS (BAR n), Nothing)
+    -- TODO Kill these features (They should be macros):
     ETAB ds    -> doTab ds
-    EVEC vs    -> doVec vs
-    ECOW n     -> pure (1+fromIntegral n, BCNS (COW n), Nothing)
     ECAB n     -> pure (1+(length n), BCNS (CAB n), Nothing)
   where
     apple f []    = f
     apple f (b:c) = apple (EAPP f b) c
 
-    doVec vs = do
-        es <- traverse (expBod s) vs
-
-        let mkCow 0 = ROW mempty
-            mkCow n = COW n
-
-        let cow = (mkCow $ fromIntegral $ length vs)
-        let ex = vecApp cow (view _2 <$> es)
-
-        pure $ if all (> 0) (view _1 <$> es)
-               then (1, ex, Nothing)
-               else (0, ex, Nothing)
-
     doTab
-        :: Map Nat (Exp Pln Refr Global)
-        -> ExceptT Text IO (Int, Bod Global, Maybe (Fun Pln Refr Global))
+        :: Map Nat (Exp Fan Refr Global)
+        -> ExceptT Text IO (Int, Bod Global, Maybe (Fun Fan Refr Global))
     doTab ds = do
         let tups = M.toAscList ds
             keyz = fst <$> tups
@@ -602,7 +632,7 @@ expBod s@(_, tab) = \case
         pure (ar, ex, Nothing)
 
     vecApp :: Val a -> [Bod a] -> Bod a
-    vecApp cnstr params = cnsApp cnstr params
+    vecApp cnstr params = cnsApp cnstr (reverse params)
 
     bodApp f = \case []   -> f
                      x:xs -> bodApp (BAPP f x) xs
@@ -709,15 +739,13 @@ duplicateExp = go
         EAPP f x    -> EAPP <$> go f <*> go x
         ELAM f      -> ELAM <$> duplicateFun f
         ELIN xs     -> ELIN <$> traverse go xs
+        EBAM xs     -> EBAM <$> traverse go xs
         EBED{}      -> pure expr
         EREF{}      -> pure expr
         ENAT{}      -> pure expr
 
         -- TODO Remove these features
-        EBAR{}      -> pure expr
-        ECOW{}      -> pure expr
         ECAB{}      -> pure expr
-        EVEC xs     -> EVEC <$> traverse go xs
         ETAB xs     -> ETAB <$> traverse go xs
 
 inlineFun
@@ -752,9 +780,9 @@ noInline msg = do
 
 inlineExp
     :: IntMap (Int, Bod Global, Inliner)
-    -> Exp Pln Refr Global
-    -> NonEmpty (Exp Pln Refr Global)
-    -> ExceptT Text IO (Exp Pln Refr Global)
+    -> Exp Fan Refr Global
+    -> NonEmpty (Exp Fan Refr Global)
+    -> ExceptT Text IO (Exp Fan Refr Global)
 inlineExp tab f xs =
     case f of
         ELAM l ->
@@ -781,34 +809,24 @@ resolveExp
 resolveExp e = liftIO . \case
     EBED b     -> pure (EBED b)
     ENAT n     -> pure (ENAT n)
-    EREF r     -> case lookup r e of
-                    Nothing -> pure (EREF r)
-                    Just rf -> pure (EVAR rf)
-
-    -- TODO Should this be `(absurd v)`?
-    EVAR v     -> case lookup v e of
-                    Nothing -> pure (EREF v)
-                    Just rf -> pure (EVAR rf)
-
+    EREF r     -> pure (maybe (EREF r) EVAR (lookup r e))
+    EVAR v     -> pure (maybe (EREF v) EVAR (lookup v e))
     EAPP f x   -> EAPP <$> go e f <*> go e x
     ELIN xs    -> ELIN <$> traverse (go e) xs
-    EVEC vs    -> EVEC <$> traverse (go e) vs
-    EREC n v b -> do r <- gensym n
-                     let e2 = insertMap n r e
-                     EREC r <$> go e2 v <*> go e2 b
-    ELET n v b -> do r <- gensym n
-                     let e2 = insertMap n r e
-                     ELET r <$> go e v <*> go e2 b
-
+    EBAM xs    -> EBAM <$> traverse (go e) xs
     ELAM f     -> ELAM <$> resolveFun e f
-
-    -- TODO Remove the following features:
-    ETAB ps    -> ETAB <$> traverse (go e) ps
-    EBAR n     -> pure (EBAR n)
-    ECOW n     -> pure (ECOW n)
-    ECAB n     -> pure (ECAB n)
+    EREC n v b -> goLet True n v b
+    ELET n v b -> goLet False n v b
+    ETAB ps    -> ETAB <$> traverse (go e) ps -- TODO Kill this
+    ECAB n     -> pure (ECAB n)               -- TODO Kill this
   where
     go = resolveExp
+    goLet rec n v b = do
+        r <- gensym n
+        let e2   = insertMap n r e
+        let con  = if rec then EREC else ELET
+        let vEnv = if rec then e2 else e
+        con r <$> go vEnv v <*> go e2 b
 
 
 -- Hacky Snapshot System -------------------------------------------------------

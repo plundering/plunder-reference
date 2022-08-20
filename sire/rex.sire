@@ -1,0 +1,118 @@
+;;;
+;;; This is some basic utilities for working with Rexpressions.
+;;; It includes the "`" macro for quoting.
+;;;
+;;; TODO This is going to be radicaly changed soon (different
+;;; representation + datajet)
+;;;
+;;; ` is just a simple macro that quotes an expression (just like in LISP).
+;;;
+;;;     `(3 4 5) == (NODE "|" [WORD-"3" WORD-"4" WORD-"5"])
+;;;
+;;; It works by simply parsing out it's first kid and retuning it as an
+;;; embeded plunder value.
+;;;
+
+/+  bool       (if)
+/+  prim       (apply)
+/+  cord       (cordWeld cordCat)
+/+  either     (LEFT RIGHT eitherCase eitherOpen)
+/+  eql        (eql neq)
+/+  list       (NIL CONS listCase listToRowReversed listFromRow digits)
+/+  row        (len idx)
+/+  row        (weld switch zipWith map turn rowApply)
+/+  row        (",")
+/+  tab        (tabToPairs)
+
+
+;;;;;;;;;;;;;;;;;
+;; Definitions ;;
+;;;;;;;;;;;;;;;;;
+
+(showNat n)=(cordCat digits-n)
+
+= (FAIL rex mesg)       | LEFT-[rex mesg]
+= (NODE rune kids)      | [0 rune kids]
+= (HEIR rune kids heir) | [0 rune kids heir]
+= (WORD text)           | [1 text]
+= (CORD text)           | [2 text]
+= (PAGE text)           | [3 text]
+= (EBED cnst)           | [4 cnst]
+
+= (mkHeir rune kids heir)
+| if eql-0-heir (NODE rune kids)
+| HEIR rune kids heir
+
+= (rexCase rex node bare text page embd)
+@ n ! node idx-1-rex idx-2-rex idx-3-rex
+@ b ! bare idx-1-rex
+@ t ! text idx-1-rex
+@ p ! page idx-1-rex
+@ e ! embd idx-1-rex
+| switch idx-0-rex 0 [n b t p e]
+
+= (rexGetNode rex fb node)
+! rexCase rex node (_ & fb) (_ & fb) (_ & fb) (_ & fb)
+
+= (rexGetWord rex fb bare)
+! rexCase rex (_ _ _ & fb) bare (_ & fb) (_ & fb) (_ & fb)
+
+= (rexGetText rex fb text)
+@ err1 (_)&fb
+@ err3 (_ _ _)&fb
+! rexCase rex err3 err1 text err1 err1
+
+= (isWord rex) (eql 1 idx-0-rex)
+
+= (mergeHeir kids heir)
+| if eql-0-heir kids (weld kids ,heir)
+
+= (rexGetNodeFolded rex fb node)
+@ err (_ & fb)
+@ folded
+    & (rune kids cont)
+    ! node rune (mergeHeir kids cont)
+! rexCase rex folded err err err err
+
+= ("`" env nex kids heir)
+@ rex (HEIR "`" kids heir)
+@ args (mergeHeir kids heir)
+| if (neq 1 len-args) (FAIL rex "Expected 1 Parameter")
+| RIGHT
+, 0
+| EBED (idx 0 args)
+
+
+;;;;;;;;;;;
+;; Tests ;;
+;;;;;;;;;;;
+
+= (rexType rex)
+! rexCase rex
+    (r k h)&"NODE"
+    _&"BARE"
+    _&"TEXT"
+    _&"PAGE"
+    _&"EBED"
+
+w=WORD
+
+??  eql  `3       | w"3"
+??  eql  `(3 4)   | NODE "|" [w"3" w"4"]
+??  eql  `[a][b]  | HEIR "," [w"a"] (NODE "," [w"b"])
+
+??  eql %NODE (rexType `[])
+??  eql %BARE (rexType `hi)
+??  eql %TEXT (rexType `"")
+??  eql %PAGE | rexType ` """
+
+
+;;;;;;;;;;;;;
+;; Exports ;;
+;;;;;;;;;;;;;
+
+^-^ FAIL NODE HEIR WORD CORD PAGE EBED
+^-^ rexCase rexGetNode rexGetWord rexGetText
+^-^ isWord mkHeir
+^-^ mergeHeir rexGetNodeFolded
+^-^ "`"

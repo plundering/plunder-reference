@@ -1,8 +1,9 @@
 /+  bool     (if)
 /+  row      (idx len weld)
+/+  row      (",")
 /+  eql      (eql neq)
 /+  either   (LEFT RIGHT)
-/+  macro    (HEIR NODE isWord)
+/+  rex      (HEIR NODE isWord)
 /+  openRow  ("#openRow" isOpenRowExp)
 /+  openTab  ("#openTab" isOpenTabExp)
 

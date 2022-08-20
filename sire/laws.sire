@@ -1,22 +1,20 @@
 /+  prim       (mkFun valCase natCase inc)
 /+  prim       (isNat isApp isFun)
-/+  prim       (funName funArgs funBody appHead appTail)
-/+  prim       (car cdr)
+/+  prim       (funName funArgs funBody car cdr)
 /+  prim       (caar cadr cdar cddr)
 /+  prim       (caaar caadr cadar caddr cdaar cdadr cddar cdddr)
 /+  prim       (force seq deepseq trk trkVal die)
 
-/+  combo      (S K I apply supply compose)
+/+  prim       (S K I apply supply compose)
 
-/+  bool       (T F Y N)
-/+  bool       (toBool not if ifNot)
+/+  bool       (true false)
+/+  bool       (bit not if ifNot)
 /+  bool       (and or xor nand nor xnor)
 
 /+  nat        (inc dec add sub mod mul div)
-/+  nat        (toNat aeqZero)
+/+  nat        (toNat met)
 /+  nat        (aeq lth gth lte gte min max)
 /+  nat        (even odd)
-/+  nat        (roundUp blockWeld bitWidth takeByte dropByte)
 /+  nat        (lsh rsh con mix dis bex)
 /+  nat        (takeBits)
 
@@ -34,41 +32,50 @@
 /+  list_core  (NIL CONS listCase listMap listTurn)
 /+  list_core  (listHead listSafeHead listUnsafeHead)
 
-/+  row        (mkRow isCow isRow)
-/+  row        (splice chunks replicate weld)
+/+  row        (cow isCow isRow)
+/+  row        (slice chunks rep weld)
 /+  row        (switch match)
 /+  row        (gen foldr foldl)
-/+  row        (update)
-/+  row        (find has)
+/+  row        (findIdx elemIdx has)
 /+  row        (rowAnd rowOr sum all any zip zipWith)
-/+  row        (concat concatMap)
-/+  row        (map turn put take drop reverse)
+/+  row        (cat catMap)
+/+  row        (map turn put take drop rev)
 /+  row        (rowApply)
 
 /+  list       (listFoldl listFoldr listMap listTurn listLen)
 /+  list       (listSum listToRow listToRowReversed listFromRow listAnd)
 /+  list       (listOr listSum listAll listAny listHas listEnumFrom)
-/+  list       (listWeld listConcat listTake listDrop listDigits digits)
+/+  list       (listWeld listCat listTake listDrop listDigits digits)
 /+  list       (listZipWith listZip listFilter listNull listMinimumOn)
 /+  list       (listSortOn sortOn)
 
-/+  tab        (tabLen tabIdx look tabKeys tabHas tabGet tabValues)
-/+  tab        (tabSwitch tabMatch tabFromRow tabToRow tabToList tabPut)
+/+  tab        (tabLen tabIdx look tabKeys hasKey look tabVals)
+/+  tab        (tabSwitch tabMatch tabFromPairs tabToPairs tabToList tabPut)
+
+/+  rex        ("`")
+
+/+  cord       (cordWeld cordCat)
+/+  either     (eitherMap)
+/+  rex        (FAIL NODE HEIR WORD CORD PAGE EBED)
+/+  rex        (mkHeir rexCase rexGetNode rexGetWord rexGetText)
+/+  sire       (eitherRowSequence eitherRowTraverse)
+/+  sire       (natE varE)
 
 /+  macro      (simpleMacro gensymMacro)
-/+  macro      (eitherMap eitherRowSequence eitherRowTraverse cordWeld)
-/+  macro      (cordConcat showNat EROR NODE HEIR WORD TEXT PAGE VRAW)
-/+  macro      (mkHeir rexCase rexGetNode rexGetWord rexGetText natE varE)
-/+  macro      (cnsE appE appE2 vecE letE txtE gensymE mergeHeir)
-/+  macro      (rexGetNodeFolded tabE)
+/+  sire       (showNat)
+/+  rex        (mergeHeir)
+/+  sire       (cnsE barE appE appE2 letE txtE)
+/+  macro      (vecE tabE gensymE)
+/+  rex        (rexGetNodeFolded)
 
 /+  pad        ("#p")
 /+  pad        (toPad padNat padWeld natPad padFromBinary)
 
 /+  bar        ("#b" "#x")
+/+  bar        (isBar barFlat)
 /+  bar        (byteWidth barTrail barEnc barDec mkBar natBar barNat)
 /+  bar        (barPad barLen barIdx zEnd stripZEnd w8 bytesBar barGen)
-/+  bar        (barGet barBytes barFoldl barFoldr barWeld barConcat)
+/+  bar        (barGet barBytes barFoldl barFoldr barWeld barCat)
 /+  bar        (barIntercalate)
 
 /+  w32        (w32 wMax32 wMin32)
@@ -97,17 +104,24 @@
 /+  w48        (iInc48 iDec48 iAdd48 iSub48)
 /+  w48        (iMul48 iDiv48)
 
-/+  openRow    ("#openRow" "openRowE")
-/+  openRow    ("readSymbol" "okaySymbol")
-/+  openTab    ("#openTab" "isOpenTabExp" "openTabE" "readOpenTabExp")
+/+  sire       (readSymbol isSymbol)
+
+/+  openRow    ("#openRow" openRowE)
+/+  openTab    ("#openTab" isOpenTabExp openTabE readOpenTabExp)
 /+  hax        ("#")
-/+  tic        ("`")
 /+  tar        ("*")
+/+  com        ("," ",,")
 
 /+  blake3     (blake3)
 
-/+  cord       (explode implode)
+/+  cord       (cordToRow cordFromRow)
 /+  cord       (isDigit isUpper isLower isAlpha)
+
+/+  mutrec     ("#mutrec")
+
+/+  col        (":")
+
+/+  getenv     ("#getenv")
 
 (gulf f t)=(gen (sub inc-t f) add-f)
 
@@ -120,18 +134,16 @@ hexAlphabet=(natBar "0123456789abcdef")
 (hexChar n)=(barGet hexAlphabet n)
 
 = (hexByte n)
-| implode
+| cordFromRow
 | map hexChar
 ,, takeBits 4 (rsh n 4)
 ,, takeBits 4 n
 
-(showByte n)=(blockWeld 16 "0x" hexByte-n)
-
-(rap w v)=(foldl (blockWeld w) 0 v)
+(showByte n)=(cordWeld "0x" hexByte-n)
 
 = (showHash v)
 | cordWeld "0x"
-| rap 16
+| cordCat
 | map hexByte v
 
 = (hexCharToNat v)
@@ -139,17 +151,15 @@ hexAlphabet=(natBar "0123456789abcdef")
 | add 10 (sub (min v %f) %a)
 
 = (barFromHex nat)
-@ dig | map hexCharToNat explode-nat
+@ dig | map hexCharToNat cordToRow-nat
 @ pad | if (even len-dig) [] [0]
-@ buf | listFromRow concat-[pad dig [0 1]]
+@ buf | listFromRow cat-[pad dig [0 1]]
 . 0 buf 1
 ? (loop acc lis pos)
 | seq acc
-! listCase lis (0 1 1 acc)
-& (a as)
-! listCase as (die %impossible)
-& (b bs)
-@ acc {add acc | add mul-pos-b | mul-pos | mul 16 a}
+: (a as) <- listCase lis (0 1 1 acc)
+: (b bs) <- listCase as (die %impossible)
+@ acc (| add acc | add mul-pos-b | mul-pos | mul 16 a)
 | loop acc bs (mul 256 pos)
 
 ?? eql (add 1  0     ) | funBody | barFromHex '''
@@ -162,10 +172,10 @@ hexAlphabet=(natBar "0123456789abcdef")
 ?? eql 0xfe00          | barNat  | barFromHex '''00fe
 ?? eql 0xfe0011        | barNat  | barFromHex '''1100fe
 
-?? eql | barConcat
+?? eql | barCat
        ,, x#7470ea5654831e01ffc04ee0e43a32fb
        ,, x#90227162dc0faaa14f9627d8f5c718f7
-   {bytesBar | blake3 | explode "fdsafdsa"}
+   (| bytesBar | blake3 | cordToRow "fdsafdsa")
 
 ; All pins referenced by a val.
 = (refs top)
@@ -187,20 +197,19 @@ hexAlphabet=(natBar "0123456789abcdef")
 ; Lookup into a map encoded as a list
 ; of [k v] pairs.
 = (listLookup key l)
-! listCase l NONE
-& (x xs)
+: (x xs) <- listCase l NONE
 * [k v] x
 | if (eql k key) (SOME v)
 | listLookup key xs
 
 = (dropHighBit x)
 | sub x
-| bex | dec bitWidth-x
+| bex | dec met-x
 
 = (mat nat)
 | ifNot nat [1 1]
-@ aSz bitWidth-nat
-@ sSz bitWidth-aSz
+@ aSz met-nat
+@ sSz met-aSz
 @ bod | dropHighBit
       | mix (takeBits dec-sSz aSz) (lsh nat dec-sSz)
 ,, add aSz dec-(add sSz sSz)
@@ -228,11 +237,9 @@ hexAlphabet=(natBar "0123456789abcdef")
 = (optionRowSequence results)
 . NIL listFromRow-results
 ? (loop acc rest)
-! listCase rest
-   SOME!(listToRowReversed acc)
-& (mX more)
-! maybeCase mX NONE
-& x (loop (CONS x acc) more)
+: (mX more) <- listCase rest SOME-(listToRowReversed acc)
+: x <- maybeCase mX NONE
+| loop (CONS x acc) more
 
 (optionRowTraverse f xs)=(optionRowSequence map-f-xs)
 
@@ -241,34 +248,6 @@ hexAlphabet=(natBar "0123456789abcdef")
 
 ?? | eql SOME-[3 4 5]
    | optionRowSequence [SOME-3 SOME-4 SOME-5]
-
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; Macro: Monadic Bind on Macro Result ;;
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-= ("#@" env nex xs mK)
-@ args (mergeHeir xs mK)
-| if (neq 3 len-args) "Expected 3 parameters"
-* [var exp bod] args
-@ guardedBod
-   | appE
-   ,, cnsE if
-   ,, appE [[4 isNat] var]
-   ,, var
-   ,, bod
-| RIGHT
-, 0
-| NODE "@" [var exp guardedBod]
-
-?? | eql %foo
-   @ xxx %foo
-   | if isNat-xxx xxx
-   %bar
-
-?? | eql %foo
-   #@ xxx %foo
-   %bar
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -291,15 +270,14 @@ hexAlphabet=(natBar "0123456789abcdef")
 
 ; (Nat > Maybe Nat)
 = (readNat n)
-@ mDigits (optionRowTraverse readDigit explode-n)
-! maybeCase mDigits NONE
-& nums
+@ mDigits (optionRowTraverse readDigit cordToRow-n)
+: nums <- maybeCase mDigits NONE
 @ f
    & (elem rest)
    * [pos acc] rest
    (mul 10 pos, add acc mul-pos-elem)
 | ifNot len-nums NONE
-! SOME (idx 1)(foldr f [1 0] nums)
+| SOME (idx 1)(foldr f [1 0] nums)
 
 ?? eql SOME-1   readNat-"1"
 ?? eql SOME-12  readNat-"12"
@@ -313,12 +291,12 @@ hexAlphabet=(natBar "0123456789abcdef")
 ;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 = (readNatEither rex msg nat)
-! maybeCase (readNat nat) LEFT-[rex msg] RIGHT
+: x <- maybeCase (readNat nat) (x & LEFT-[rex msg] x)
+| RIGHT x
 
 = (readNatWord rex)
 @ msg """Not an atom literal (readNatWord)
-! rexGetWord rex LEFT-[rex msg]
-& word
+: word <- rexGetWord rex LEFT-[rex msg]
 ! readNatEither rex msg word
 
 = (readAtomLit rex)
@@ -332,7 +310,7 @@ hexAlphabet=(natBar "0123456789abcdef")
           bad
       ! rexGetWord idx-0-kids bad
       | (num & RIGHT num)
-  (x & {! readNatEither rex bad x})
+  (x & (! readNatEither rex bad x))
   (x & RIGHT-x)
   (x & RIGHT-x)
   (v & if isNat-v RIGHT-v bad)
@@ -345,24 +323,22 @@ hexAlphabet=(natBar "0123456789abcdef")
 | if  | and (eql 1   idx-0-pat)
             (eql "_" idx-1-pat)
    | RIGHT NONE
-! eitherOpen (readAtomLit pat)
-& x (RIGHT SOME-x)
+: x <- eitherOpen (readAtomLit pat)
+| RIGHT SOME-x
 
 ; derpSwtichPattern :: Rex -> Rex -> Either Rex,Text [Maybe-Nat Rex])
 = (derpSwitchPattern pat exp)
-! eitherOpen (readSwitchPattern pat)
-& nat
+: nat <- eitherOpen (readSwitchPattern pat)
 | RIGHT-(nat, exp)
 
 = (unrollSlip2 rune fb rex)
 . NIL rex
 ? (loop acc form)
 @ fallback
-    ! eitherCase fb-form I
-    | (right & loop CONS-right-acc 0)
+    : right <- eitherCase fb-form I
+    | loop CONS-right-acc 0
 | if eql-0-form listToRowReversed-acc
-! rexGetNode form fallback
-& (n kids heir)
+: (n kids heir) <- rexGetNode form fallback
 | if (neq rune n) fallback
 | loop CONS-kids-acc heir
 
@@ -376,13 +352,11 @@ hexAlphabet=(natBar "0123456789abcdef")
 . NIL rex
 ? (loop acc form)
 @ fallback
-   ! eitherOpen (fb form)
-   & term
+   : term <- eitherOpen (fb form)
    | loop CONS-term-acc 0
 | if (eql 0 form)
    | RIGHT listToRowReversed-acc
-! rexGetNode form fallback
-& (n kids heir)
+: (n kids heir) <- rexGetNode form fallback
 | if (neq "=" n) fallback
 @ nkid len-kids
 | if (and (eql 1 nkid) (neq 0 heir))
@@ -394,19 +368,16 @@ hexAlphabet=(natBar "0123456789abcdef")
 
 = (readSwitchPatterns rex)
 @ fb (form & RIGHT [(WORD "_") form])
-! eitherOpen (unrollSlip2Tis fb rex)
-& clauses
-! eitherOpen (eitherRowTraverse (rowApply derpSwitchPattern) clauses)
-& cases
+: clauses <- eitherOpen (unrollSlip2Tis fb rex)
+: cases <- eitherOpen (eitherRowTraverse (rowApply derpSwitchPattern) clauses)
 | RIGHT
 . [cnsE-0 %[]] cases
 | foldl
 & (acc patExp)
 * pat,exp   patExp
 * _,caseTab acc
-! maybeCase pat
-   (put acc 0 exp)
-   (k & put acc 1 (tabPut caseTab k exp))
+: k <- maybeCase pat (put acc 0 exp)
+| put acc 1 (tabPut caseTab k exp)
 
 ; TODO should `simpleMacro` build the Pin + wrapper fun itself?
 = ("#switch" env nex xs mK)
@@ -419,7 +390,7 @@ hexAlphabet=(natBar "0123456789abcdef")
    | listAnd
    | listZipWith eql listEnumFrom-0
    | listFromRow tabKeys-ps
-@ rowImpl | appE [cnsE-switch    expr fb vecE-(tabValues ps)]
+@ rowImpl | appE [cnsE-switch    expr fb vecE-(tabVals ps)]
 @ tabImpl | appE [cnsE-tabSwitch expr fb tabE-ps]
 | RIGHT
 | if canUseRowIndex rowImpl tabImpl
@@ -464,12 +435,12 @@ hexAlphabet=(natBar "0123456789abcdef")
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 = (valRex expr)
-| TEXT "EMBED VAL"
+| CORD "EMBED VAL"
 
 = (showRex expr)
 ! rexCase expr
       & (r x k)
-      @ hed | barConcat
+      @ hed | barCat
             ,, b#"("
             ,, | barIntercalate b#" "
                | if (eql r '|') map-showRex-x
@@ -478,8 +449,8 @@ hexAlphabet=(natBar "0123456789abcdef")
       | if (eql k 0) hed
       | barWeld hed showRex-k
    (name & natBar name)
-   (cord & barConcat [b#'"' natBar-cord b#'"'])
-   (page & showRex (TEXT cordConcat-page))
+   (cord & barCat [b#'"' natBar-cord b#'"'])
+   (page & showRex (CORD cordCat-page))
    (cnst & showRex valRex-cnst)
 
 
@@ -503,7 +474,7 @@ hexAlphabet=(natBar "0123456789abcdef")
 = 7 %Seven
 = 8 %Eight
 = 9 %Nine
-| cordConcat
+| cordCat
 ,, loop (div n 10)
 ,, natWords (mod n 10)
 
@@ -526,7 +497,7 @@ hexAlphabet=(natBar "0123456789abcdef")
 `  = (showRex expr)
    ! rexCase expr
          & (r x k)
-         @ hed | barConcat
+         @ hed | barCat
                ,, b#"("
                ,, | barIntercalate b#" "
                   | if (eql r '|') map-showRex-x
@@ -535,8 +506,8 @@ hexAlphabet=(natBar "0123456789abcdef")
          | if (eql k 0) hed
          | barWeld hed showRex-k
       (name & natBar name)
-      (cord & barConcat [b#'"' natBar-cord b#'"'])
-      (page & showRex (TEXT cordConcat-page))
+      (cord & barCat [b#'"' natBar-cord b#'"'])
+      (page & showRex (CORD cordCat-page))
       (cnst & showRex valRex-cnst)
 
 
@@ -556,10 +527,8 @@ hexAlphabet=(natBar "0123456789abcdef")
   | letE tmp idx-0-args
   . (listFromRow drop-1-args)
   ? (loop more)
-  ! listCase more (die "impossible")
-  & (x xs)
-  ! listCase xs appE-[cnsE-eql tmp x]
-  & (y ys)
+  : (x xs) <- listCase more (die "impossible")
+  : (y ys) <- listCase xs appE-[cnsE-eql tmp x]
   | appE
   ,, cnsE-and
   ,, appE [cnsE-eql tmp x]
@@ -582,141 +551,6 @@ hexAlphabet=(natBar "0123456789abcdef")
 ??(eql /= neq)
 
 
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; Macro: Global Namespace as Value ;;
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-("#getenv" env nex xs mK)=(RIGHT 0,(cnsE env))
-
-?? eql $"#getenv" (tabGet #getenv "#getenv")
-
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; Macro: Mutually Recursive Funs ;;
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-= (readSignature rex)
-@ mustBe """Function Signature must be a symbol `x` or signature `(x y z)`
-@ err LEFT-[rex mustBe]
-! rexCase rex
-         & (rune args cont)
-         @ noCont """name-sequence cannot have a continuation
-         | if (neq rune "|") | err
-         | if (neq cont 0)   | LEFT [rex noCont]
-         | eitherRowTraverse readSymbol args
-      & _
-      ! eitherOpen (readSymbol rex)
-         (res & [(idx 0 res)])
-   (_ & err)
-   (_ & err)
-   (_ & err)
-
-= (readCorePattern sig body)
-! eitherOpen (readSignature sig)
-   (args & RIGHT-[args body])
-
-= (readCoreBody rex)
-! eitherOpen
-   | unrollSlip2Tis (rx & LEFT [rx 'Not a core arm']) rex
-& clauses
-| eitherRowTraverse (rowApply readCorePattern) clauses
-
-= (anonLamE args body)
-| HEIR "&" [appE-args] body
-
-= (taggedLamE idn tag args body)
-@ tagIdn (NODE "$" [idn natE-tag])
-| HEIR "?" [appE-(weld [tagIdn] args)]
-| body
-
-?? | eql ` {? (a$3 x y)}z
-   | taggedLamE `a 3 [`x `y] `z
-
-= (matchE x f ps)
-| appE [cnsE-match x f vecE-ps]
-
-;;; TODO Need to fix macro interface because passing "#mutrec" to
-;;; `gensymMacro` is nonsense.
-= ("#mutrec" env nex kids heir)
-. env nex kids heir
-| gensymMacro "#mutrec"
-   ,, readAtomLit
-   ,, RIGHT
-   ,, readCoreBody
-& (nex coreTag letBody sigExpPairs)
-@ coreIdn (gensymE nex)
-@ coreArg (gensymE inc-nex)
-@ bindArms
-   ? (bindArms body arms)
-   ! listCase arms body
-   & (item rest)
-   * key,arm item
-   * sig,_ arm
-   @ armArgs (map WORD drop-1-sig)
-   | letE (WORD idx-0-sig)
-       | anonLamE armArgs
-       | appE
-       ,, coreIdn
-       ,, vecE-(weld [natE-key] armArgs)
-   | bindArms body rest
-@ arms
-   | listZip listEnumFrom-0 listFromRow-sigExpPairs
-@ branches
-   | turn listToRow-arms
-   & item
-   * _,arm item
-   * sig,body arm
-   | NODE "*"
-   @ binds | map WORD
-           | weld ["_"] drop-1-sig
-   ,, NODE "," binds
-   ,, coreArg
-   ,, body
-@ coreBody (matchE coreArg natE-0 branches)
-| RIGHT
-, 2
-| letE coreIdn
-   | taggedLamE coreIdn coreTag [coreArg]
-   | bindArms coreBody arms
-| bindArms letBody arms
-
-= (looper start)
-# mutrec %loop
-   {! loop start}
-= (loop xx)
-   | ifNot xx 0
-   ! loop 0
-
-= loopFun
-? (looper start)
-. [0 start]
-? (loop b)
-| match b 0
-,, ifNot idx-1-b 0 loop-[0 0]
-
-?? eql (car looper) (0 0 1)
-?? eql (cdr looper) (0 (2 loopFun) 1)
-?? eql looper       (mkPin loopFun)
-
-= evenOdd
-# mutrec %even_odd
-   ,, mkPin | 0 %even 1 (0 even 1)
-   ,, mkPin | 0 %odd  1 (0 odd 1)
-= (even x)
-   | ifNot x T {! odd dec-x}
-= (odd x)
-   | ifNot x F {! even dec-x}
-
-even=(idx 0 evenOdd)
-odd=(idx 1 evenOdd)
-
-?? even 0
-?? even 2
-?? even 20
-?? odd 1
-?? odd 3
-?? odd 21
-
 ;;;;;;;;;;;;;;;;;;;
 ;; Serialization ;;
 ;;;;;;;;;;;;;;;;;;;
@@ -725,7 +559,7 @@ odd=(idx 1 evenOdd)
 @ pos | len external
 @ tab | listZip (listFromRow external) (listEnumFrom 0)
 # mutrec %loop
-   * [_ s b _] {! go pos tab top}
+   * [_ s b _] (! go pos tab top)
    | add b bex-s
 = (nat p t atm)
    * [sz bits] (mat atm)
@@ -734,21 +568,20 @@ odd=(idx 1 evenOdd)
    * [sz bits] (mat ref)
    | (p, add 2 sz, mix 1 (lsh bits 2), t)
 = (cel p t hed tel)
-   * [p hSz hBits t2] {! go (inc p) t hed}
-   * [p tSz tBits t3] {! go (inc p) t2 tel}
+   * [p hSz hBits t2] (! go (inc p) t hed)
+   * [p tSz tBits t3] (! go (inc p) t2 tel)
    @ siz (add 1)(add hSz tSz)
    @ bit (mul 2)(add hBits (lsh tBits hSz))
    | (p, siz, bit, t3)
 = (go p t noun)
-   ! maybeCase (listLookup noun t)
-       @ t (CONS [noun p] t)
-       | if isNat-noun {! nat p t noun}
-       | if isApp-noun {! cel p t car-noun cdr-noun}
-       @ hed (mkFun funName-noun funArgs-noun)
-       ! cel p t hed funBody-noun
-   & ref
+   : ref <- maybeCase (listLookup noun t)
+              @ t (CONS [noun p] t)
+              | if isNat-noun (! nat p t noun)
+              | if isApp-noun (! cel p t car-noun cdr-noun)
+              @ hed (mkFun funName-noun funArgs-noun)
+              ! cel p t hed funBody-noun
    | if  | and isNat-noun
-         | lte bitWidth-noun bitWidth-ref
+         | lte met-noun met-ref
       ! nat p t noun
    ! backref p t ref
 
@@ -760,13 +593,13 @@ odd=(idx 1 evenOdd)
 ;;; = (jarSt tab val)
 ;;; @ depz | refs val
 ;;; @ pack | jam depz val
-;;; @ byts | explode pack
+;;; @ byts | cordToRow pack
 ;;; @ kids | for tab deps (s r & jarSt s pinItem-r)
 ;;; @ tab  | idx 0 kids
 ;;; @ head | map idx-0 (idx 1 kids)
-;;; @ sepr | replicate 0 32
-;;; @ cHed | concat head
-;;; @ crip | concat (cHed, sepr, byts)
+;;; @ sepr | rep 0 32
+;;; @ cHed | cat head
+;;; @ crip | cat (cHed, sepr, byts)
 ;;; @ hash | blake3 crip
 ;;; , tab [hash depz byts]
 ;;;
@@ -777,11 +610,11 @@ odd=(idx 1 evenOdd)
 = (jar val)
 @ depz | refs val
 @ pack | jam depz val
-@ byts | explode pack
+@ byts | cordToRow pack
 @ head | map (r & idx 0 jar-(pinItem r)) depz
-@ sepr | replicate 0 32
-@ cHed | concat head
-@ crip | concat (cHed, sepr, byts)
+@ sepr | rep 0 32
+@ cHed | cat head
+@ crip | cat (cHed, sepr, byts)
 @ hash | blake3 crip
 , hash depz byts
 
@@ -791,10 +624,10 @@ odd=(idx 1 evenOdd)
 %% =deps deps
 %% =bits bytesBar byts
 
-(jarHash val)={bytesBar | idx 0 | jar val}
-(jarBytz val)={bytesBar | idx 2 | jar val}
-(pinHash val)=(if (not isPin-val) 0 jarHash-(pinItem val))
-(pinBytz val)=(if (not isPin-val) 0 jarBytz-(pinItem val))
+(jarHash val)=(| bytesBar | idx 0 | jar val)
+(jarBytz val)=(| bytesBar | idx 2 | jar val)
+(pinHash val)=(| ifNot isPin-val 0 | jarHash | pinItem val)
+(pinBytz val)=(| ifNot isPin-val 0 | jarBytz | pinItem val)
 
 ?? eql jarBytz-0       x#0f
 ?? eql jarBytz-1       x#1b
@@ -812,8 +645,15 @@ odd=(idx 1 evenOdd)
 ?? eql (pinHash mul)
    x#b74e96e0385dcb18599b1570e3c5807a9284050258766cb7cd10b004713d2032
 
+;; ,, pinHash mul
+;; ,, pinHash mul
+;; ,, pinHash mul
+;; ,, pinHash mul
+;; ,, pinHash mul
+;; ,, pinHash mul
+
 = (refsTable pin)
-| tabFromRow
+| tabFromPairs
 | turn refs-pin
 & r ,, funName pinItem-r
     ,, pinHash r
@@ -828,12 +668,11 @@ odd=(idx 1 evenOdd)
 | NODE "|" xs
 
 = ("~" env nex xs mK)
-@ err | LEFT
-      ,, (HEIR "~" xs mK)
-      ,, """~ expects to be wrapped around a tuple literal: `~[3 4 5]`
+@ rex | HEIR "~" xs mK
+@ msg | "~ expects to be wrapped around a tuple literal: `~[3 4 5]`"
+@ err | LEFT [rex msg]
 | if (or (neq 0 mK) (neq 1 len-xs)) err
-! rexGetNode idx-0-xs err
-& (rune kids heir)
+: (rune kids heir) <- rexGetNode idx-0-xs err
 | if (neq rune ",") err
 | RIGHT
 , 0
@@ -878,21 +717,18 @@ odd=(idx 1 evenOdd)
 ;;  | ...
 
 = (readBindPairs rex)
-! eitherOpen
-   . NIL rex
-   ? (loop acc more)
-   ; trk [%loop %[=acc] %[=more]]
-   | if eql-0-more (RIGHT acc)
-   @ ded LEFT-[more "Knot binders must be an = node with 2 kids"]
-   ! rexGetNode more ded
-   & (rune xs mK)
-   | if neq-"="-rune ded
-   | if (neq 2 len-xs) ded
-   * [lhs rhs] xs
-   ! eitherOpen (readSymbol lhs)
-   & sym
-   | loop (CONS [cdr-sym rhs] acc) mK
-& res
+@ eat
+    . NIL rex
+    ? (loop acc more)
+    | if eql-0-more (RIGHT acc)
+    @ ded LEFT-[more "Knot binders must be an = node with 2 kids"]
+    : (rune xs mK) <- rexGetNode more ded
+    | if (neq "=" rune) ded
+    | if (neq 2 len-xs) ded
+    * [lhs rhs] xs
+    : sym <- eitherOpen (readSymbol lhs)
+    | loop (CONS [cdr-sym rhs] acc) mK
+: res <- eitherOpen eat
 | RIGHT | listToRowReversed res
 
 ;;;
@@ -921,49 +757,27 @@ odd=(idx 1 evenOdd)
 ;; Val Types ;;
 ;;;;;;;;;;;;;;;
 
-= (unApp f args)
-| if isApp-f
-   | unApp car-f
-   ! CONS cdr-f args
-| listToRow
-! CONS f args
+/+  inspect
 
-= (inspect x)
-| if isApp-x (unApp car-x | CONS cdr-x NIL)
-| if isFun-x [mkFun funName-x funArgs-x funBody-x]
-| x
+= (listIntersperse item list)
+: (x xs) <- listCase list list
+: (y _)  <- listCase xs   list
+| CONS x
+| CONS item
+| listIntersperse item xs
 
-= (fullInspection x)
-@ res inspect-x
-| if isNat-res res
-| map fullInspection res
-
-= (runVec exp)
-@ hed idx-0-exp
-@ tel drop-1-exp
-| rowApply hed tel
-
-= (rebuild spec)
-| if isNat-spec spec
-| runVec map-rebuild-spec
-
-= (unCell f args)
-| if isNat-f (listToRow CONS-f-args)
-| unApp car-f (CONS cdr-f args)
-
-= (showTreeBar x)
+= (showTree x)
+| barFlat
+. x
+? (go x)
 | if isNat-x
-   | if okaySymbol-x (barWeld b#'%' natBar-x)
-   | natBar showNat-x
-@ node | unCell car-x (CONS cdr-x NIL)
-@ kids | barIntercalate b#" " map-showTreeBar-node
-| barConcat ( b#"(" , kids , b#")" )
-
-(showTree x)=(barNat showTreeBar-x)
-
-= (showTree2 x)
-| if isNat-x x
-| R2 (showTree2 car-x) (showTree2 cdr-x)
+    | if isSymbol-x [b#'%' natBar-x]
+    | natBar showNat-x
+@ node | unApp car-x (CONS cdr-x NIL)
+@ kids | listToRow
+       | listIntersperse b#" "
+       | listMap go node
+| (b#"(" , kids , b#")" )
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;
@@ -981,6 +795,6 @@ odd=(idx 1 evenOdd)
 ;
 ;#?(eql /= neq)
 ;
-;#?{: (x=3)(y=4)(z=5) y}
+;#?(: (x=3)(y=4)(z=5) y)
 
 #getenv

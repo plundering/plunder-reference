@@ -1,8 +1,63 @@
+Finish up `stg` Changes
+=======================
+
+-   Build cleanly
+-   Tests run
+
+-   Tab macro? (Will also require handling %x).
+-   Macro expansion passes whole `Rex` node to expander.
+-   Use `rex` datajet for macros.
+
+-   Mandelbrot uses bars?
+-   Mandelbrot generates correct output?
+
+-   Optimize vector construction
+-   Optimize tab construction
+-   Optimize switch calls.
+-   Optimize tabSwitch calls.
+
+-   Implement `pinCat` and `pinFlat`.
+-   Jar uses `pinFlat`?
+-   Optimize jar impl (don't duplicate work) and use to validate jet hashes?
+
+
 Sire
 ====
 
+-   Sire uses zero-arity laws to evaluate top-level expressions (instead
+    of one-argument laws with a dummy argument)
+
+-   Build a macro for Tabs and Rows (And also for Cabs and Cows)
+
+    This will finally let use remove these from Sire itself.
+
+-   I used letE somewhere where I intended to use recE (recE is now `@@`
+    instead of `~`).  Fix.  Oh yeah, this was in `#knot`
+
+-   More expressive `(: (bind) <- fdsafdsa)`.
+
+    -   `<-` should not do inlining (uses the `-` rune)
+    -   `<!` should do inlining     (uses the `!` rune)
+    -   `<|` should also not do inlining (uses the `|` rune).
+    -   `<,` should work too (uses the `,` rune).
+
+        This last example is pointless, but why not just support this
+        in general?
+
+    The no-inline pattern is useful for things like `turn`.
+
+        : item <- list_turn
+                | list_gen (sub inc-t f) add-f
+        | inc | mul item
+
+-   TODO consider bringing back the `@ (f x) body cont` syntax?
+
+-   TODO Differentiate between empty import list and no import list.
+
+    `/+ foo` should not do the same things as `/+ foo ()`.
+
 -   TODO Move all logic from tests/*.sire into `sire/*.sire` modules.
-    Replace test rountines with code that merely imports.
+    Replace test routines with code that merely imports.
 
 -   TODO Assertions should print evaluated arguments
 
@@ -29,18 +84,6 @@ Sire
 
     Somehow, on import, we want to export a table of "Globals".
 
--   TODO Compile-Time Application ({!! 0 0 3 0} 3 4)
-
-    Go through each sub-expression and turn it into a Pln, then combine
-    the results into a single (embeded value) Pln.  If we run into a
-    local-reference, abort.
-
-    -   SECOND PHASE:
-
-        Whenever we bind a new local variable, check if it depends on
-        any function arguments.  If it does not, then track it's Pln value
-        (lazy so that we do no work unless we use it).
-
 -   TODO: Optimize lets AGAIN after inlining
 
     Inlining can remove references to let-bindings, and we don't want
@@ -62,7 +105,7 @@ Loot
 
 - TODO Add QuickCheck tests for Loot (Val -> Text -> Val).
 
-- Go futher and have every generated binder name in an output block get
+- Go further and have every generated binder name in an output block get
   a unique name:
 
     For example, in the following code, we bind `j k l` many times:
@@ -87,28 +130,16 @@ Loot
            @ g (p q r s & p (R4:3 q r s))-jamCore
 
 
+-   Consider re-using variable names when a variable is passed into
+    directly to a lambda.
+
+    This makes things clearer in the common case of lambda-lifting.
+
+    `(a b c & z)-a` instead of `(b c d & x)-a`
+
+
 Rex
 ===
-
--   The Open-mode printer should first walk continuation-sequence and
-    produce a list.  This way, it doesn't need to worry about the
-    does-it-have-an-heir case during the printing/indentation loop.
-
--   Figure out how to have an input prompt.
-
-    It needs to support multiple lines.  It should probably change once
-    a non-block-terminating non-space lines has been input.
-
--   Consider banning whitespace at the end of lines.
-
-    -   For the REPL, the block parser can have an option to do stripEnd
-        before lexing before lexing.
-
--   Embeded values branch of ADT should not have heir slot.
-
-       What does it even mean to add a heir to an embed value?
-
-       What if the embeded value is "rendered", and *that* has a heir?
 
 -   Rex runes should be indentation sensitive along the right side (not left)
 
@@ -133,8 +164,8 @@ Rex
 
         Tempting to say that you just shouldn't do this.  (You shouldn't).
 
-        However, the data structure does allow `(&& x)hello` and the tall
-        form of that needs to be printable somehow.
+        However, the Rex data structure does allow `(&& x)hello` and
+        the tall form of that needs to be printable somehow.
 
             && x
              hello
@@ -165,7 +196,7 @@ Rex
 
     However, this is a perfectly coherent concept:
 
-    - It might make the gramar more complex.
+    - It might make the grammar more complex.
 
     - It breaks the usual assumption that the child of a wide-mode
       objects is in wide-mode.
@@ -196,46 +227,15 @@ Plunder
 =======
 
 -   Jet mkPin, isPin, etc.
-
 -   Lazy loading?
+-   TODO Generic set (different from cab)
+-   TODO Generic map (different from tab)
+-   Implement `pad_flat`.
 
--   TODO Cabs are generic sets
--   TODO Tabs are generic maps
-
--   TODO Add a `Pad` datajet.
-
-    Pads are bit-arrays just like Bars are byte-arrays.
-
-    We should also use a jetted treeConcat operation that takes a
+    We should also use a jetted `pad_flat` operation that takes a
     rose-tree of Pads and concatenates all.  Build this for Bar as well.
 
         ??  eql  p#0012300  padFlat-[p#0 [p#0 p#12] p#3 p#00]
-
-    TODO: Actually, I think pads should be handled the same was as
-    w32, etc.  Pad operations take and return atoms.  They cast their
-    inputs to pads.  Every atom is a valid pad except for `0`, if a pad
-    operation is passed zero, it is treated as 1 (the empty pad).
-
--   TODO Bring back zero-arity rules.
-
-    This makes the spec easier and resolves the need for hacks around
-    x=(@ x y) syntax in Sire and Loot.  Instead, we will just always
-    have bindings create functions.
-
--   TOOD Pin datajet.
--   TOOD Eliminate native pins.
-
--   In the Primop `1`, the nat branch should take the value as an
-    argument.  This makes it practical to use directly, without lambdas
-    around it.
-
-Data Jets for Pins
-------------------
-
-I'm not ready to eliminate `4`, since that is going to be a lot of
-work and it requires figuring out how to bootstrap the (f x)=x syntax.
-However, I can build the pin data jet NOW.  Call it *Sin* and have it
-be a new datatype.
 
 
 Mandelbrot
@@ -258,59 +258,64 @@ Jar
     explicitly keeping track of which hashes are assigned to which pins.
     No more repeatedly processing the same pins.
 
-Jam Optimiations:
+Jam Optimisations:
 
-- Rewrite `Jam` to produce a Pad.
-- Rewrite `blake3` to produce a Bar (and to use a bar internally)
-- Implement `cue` and `cap`.
+-   Rewrite `Jam` to produce a Pad (using `pad_flat`).
 
-- Heavy testing.
+-   Rewrite `blake3` to produce a Bar (and to use a bar internally)
 
-- Jet `jar`, `jam`, `cap`, and `cue`.  Heavily test these operations.
+    Will need operations like `bar_get32`, `bar_set32`.
 
-- Don't turn the external refs table into a list.
+-   Implement `cue` and `cap`.
 
-  To do a lookup, first scan the external referenses table, and then
-  THEN the subtrees list.
+-   Heavy testing.
 
+-   Jet `jar`, `jam`, `cap`, and `cue`.  Heavily test that the jetted
+    an unjetted implementations have the same behavior.
+
+-   Actually, don't do this.  Instead, build a second implementation of
+    jar/jam for demonstrations purposes.  This implementation should be
+    hand-optimized instead of jetted.  It should use a Tab for
+    backreferences and to avoid re-processing Jar state.
+
+    `jar2` should serve as a benchmark and as a demonstration that custom
+    domain-specific serialization code is possible.
 
 
 Macro Interface
 ===============
 
--   TODO Use the following Rex representation:
+-   Macros are given the whole rexpression (instead of kids + heir)
+
+-   TODO Datajet Rex
+
+        That WOULD solve the inefficiencies around moving switching
+        representations when moving between macro-friendly and
+        Haskell-friendly representations.  Should massively speed up
+        macro code, and should make rexpression printable in Loot.
+
+        Loot can use this syntax for rexpressions:
+
+            ``(3 + 4)
+
+        Maybe use `,,x` for unquote/embed?
+
+        What if the rex literally includes a `,,` node?
 
     ```
-    0-[t k s]   --  Leaf
-    1-[r t k s] --  Node
-    2-x         --  Embed
+    0-[t k s]    --  Text
+    1-[r t k s]  --  Node
+    2-x          --  Embed
     ```
 
 -   TODO Macros should return "new gensym state" instead of gensym
     increment.  It just simpler, don't need to be so defensive here.
 
--   `simpleMacro` and `gensymMacro` should be macros.
+-   Give `simpleMacro` and `gensymMacro` a better interface.
 
--   We should have a macro for less-common things that lets us use a
-    macro-function by name.
+    Or better jet, just build better tools for working with syntax,
+    and remove these "frameworks".
 
-    ```
-    #  macroName
-    body
-    ```
-
-    This also gives us a way to do data-type macros!
-
-        x#ffxx
-        x#"ffxx"
-        b#turd
-        b#"turd"
-        p#0011
-
-        # x """ ff00ff
-            """ deadbeef
-
-    Eliminating the open questions around x"asdf"
 
 Macro System
 ============
@@ -330,16 +335,16 @@ Macro System
 Macros
 ======
 
--   `*` macro should support other forms of destructuring
+-   `*` should support composite patterns
 
-    - Rows (already supported)
-    - Tabs
-    - Simple identifiers.
-    - Composite patterns
+    Rows, tabs, and identifiers are already supported.  Add support for
+    combinations of these:
 
-    ```
-    * [%[=k =v] x [y1 y2]] _ _
-    ```
+        * [[k v] x %[a b]]
+           ,, [3 4]
+           ,, 5
+           ,, %[a=6 b=7]
+        | sum [k v x a b]
 
 -   Pattern Matching (with destructuring)
 
@@ -358,11 +363,12 @@ Macros
 
 -   Support fancy lambda syntax with LambdaCases and pattern matching.
 
+
 Runner
 ======
 
 Port runner over to the new Machine architecture (The runner has no
-persistance).
+persistence).
 
 Possible Naming Scheme for Hardware:
 

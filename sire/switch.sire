@@ -1,0 +1,423 @@
+;;;;
+;;;; TODO
+;;;; TODO Strip this down.
+;;;; TODO Much redudant nonsense.
+;;;; TODO
+;;;;
+
+/+  prim       (mkFun valCase natCase inc)
+/+  prim       (isNat isApp isFun)
+/+  prim       (funName funArgs funBody car cdr)
+/+  prim       (caar cadr cdar cddr)
+/+  prim       (caaar caadr cadar caddr cdaar cdadr cddar cdddr)
+/+  prim       (force seq deepseq trk trkVal die)
+
+/+  prim       (S K I apply supply compose)
+
+/+  bool       (true false)
+/+  bool       (bit not if ifNot)
+/+  bool       (and or xor nand nor xnor)
+
+/+  nat        (inc dec add sub mod mul div)
+/+  nat        (toNat met)
+/+  nat        (aeq lth gth lte gte min max)
+/+  nat        (even odd)
+/+  nat        (lsh rsh con mix dis bex)
+/+  nat        (takeBits)
+
+/+  eql        (eql neq)
+
+/+  pin        (mkPin isPin pinItem)
+
+/+  maybe      (NONE SOME maybeCase fromSome)
+
+/+  either     (LEFT RIGHT eitherCase eitherOpen fromRight)
+/+  either     (eitherOpenLeft eitherCaseLeft fromLeft)
+
+/+  apply      (arity head idx get len)
+
+/+  list_core  (NIL CONS listCase listMap listTurn)
+/+  list_core  (listHead listSafeHead listUnsafeHead)
+
+/+  row        (cow isCow isRow)
+/+  row        (slice chunks rep weld)
+/+  row        (switch match)
+/+  row        (gen foldr foldl)
+/+  row        (findIdx elemIdx has)
+/+  row        (rowAnd rowOr sum all any zip zipWith)
+/+  row        (cat catMap)
+/+  row        (map turn put take drop rev)
+/+  row        (rowApply)
+
+/+  list       (listFoldl listFoldr listMap listTurn listLen)
+/+  list       (listSum listToRow listToRowReversed listFromRow listAnd)
+/+  list       (listOr listSum listAll listAny listHas listEnumFrom)
+/+  list       (listWeld listCat listTake listDrop listDigits digits)
+/+  list       (listZipWith listZip listFilter listNull listMinimumOn)
+/+  list       (listSortOn sortOn)
+
+/+  tab        (tabLen tabIdx look tabKeys hasKey look tabVals)
+/+  tab        (tabSwitch tabMatch tabFromPairs tabToPairs tabToList tabPut)
+
+/+  rex        ("`")
+
+/+  cord       (cordWeld cordCat)
+/+  either     (eitherMap)
+/+  rex        (FAIL NODE HEIR WORD CORD PAGE EBED)
+/+  rex        (mkHeir rexCase rexGetNode rexGetWord rexGetText)
+/+  sire       (eitherRowSequence eitherRowTraverse)
+/+  sire       (natE varE)
+
+/+  macro      (simpleMacro gensymMacro)
+/+  sire       (showNat)
+/+  rex        (mergeHeir)
+/+  sire       (cnsE barE appE appE2 letE txtE)
+/+  macro      (vecE tabE gensymE)
+/+  rex        (rexGetNodeFolded)
+
+/+  pad        ("#p")
+/+  pad        (toPad padNat padWeld natPad padFromBinary)
+
+/+  bar        ("#b" "#x")
+/+  bar        (isBar barFlat)
+/+  bar        (byteWidth barTrail barEnc barDec mkBar natBar barNat)
+/+  bar        (barPad barLen barIdx zEnd stripZEnd w8 bytesBar barGen)
+/+  bar        (barGet barBytes barFoldl barFoldr barWeld barCat)
+/+  bar        (barIntercalate)
+
+/+  w32        (w32 wMax32 wMin32)
+/+  w32        (inc32 dec32 add32 mul32 div32)
+/+  w32        (lth32 gth32 lte32 gte32 eql32)
+/+  w32        (not32 and32 or32 xor32 lsh32 rsh32)
+/+  w32        (chop32 isZero32 sub32 ror32 rol32)
+/+  w32        (bitFlip32)
+
+/+  w32        (i32 iMax32 iMin32)
+/+  w32        (iIsZero32 iIsNeg32 iNeg32 iAbs32)
+/+  w32        (iGth32 iLth32 iGte32 iLte32 iEql32)
+/+  w32        (iInc32 iDec32 iAdd32 iSub32)
+/+  w32        (iMul32 iDiv32)
+
+/+  w48        (w48 wMax48 wMin48)
+/+  w48        (inc48 dec48 add48 mul48 div48)
+/+  w48        (lth48 gth48 lte48 gte48 eql48)
+/+  w48        (not48)
+/+  w48        (isZero48 sub48)
+/+  w48        (bitFlip48)
+
+/+  w48        (i48 iMax48 iMin48)
+/+  w48        (iIsZero48 iIsNeg48 iNeg48 iAbs48)
+/+  w48        (iGth48 iLth48 iGte48 iLte48 iEql48)
+/+  w48        (iInc48 iDec48 iAdd48 iSub48)
+/+  w48        (iMul48 iDiv48)
+
+/+  sire       (readSymbol isSymbol)
+
+/+  openRow    ("#openRow" openRowE)
+/+  openTab    ("#openTab" isOpenTabExp openTabE readOpenTabExp)
+/+  hax        ("#")
+/+  tar        ("*")
+/+  com        ("," ",,")
+
+/+  blake3     (blake3)
+
+/+  cord       (cordToRow cordFromRow)
+/+  cord       (isDigit isUpper isLower isAlpha)
+
+/+  mutrec     ("#mutrec")
+
+/+  col        (":")
+
+/+  getenv     ("#getenv")
+
+(gulf f t)=(gen (sub inc-t f) add-f)
+
+= (mkInput y)
+| map (x & mod x 256)
+| gulf 0 dec-y
+
+hexAlphabet=(natBar "0123456789abcdef")
+
+(hexChar n)=(barGet hexAlphabet n)
+
+= (hexByte n)
+| cordFromRow
+| map hexChar
+,, takeBits 4 (rsh n 4)
+,, takeBits 4 n
+
+(showByte n)=(cordWeld "0x" hexByte-n)
+
+= (showHash v)
+| cordWeld "0x"
+| cordCat
+| map hexByte v
+
+= (hexCharToNat v)
+| if (lte v %9) (sub v %0)
+| add 10 (sub (min v %f) %a)
+
+= (barFromHex nat)
+@ dig | map hexCharToNat cordToRow-nat
+@ pad | if (even len-dig) [] [0]
+@ buf | listFromRow cat-[pad dig [0 1]]
+. 0 buf 1
+? (loop acc lis pos)
+| seq acc
+: (a as) <- listCase lis (0 1 1 acc)
+: (b bs) <- listCase as (die %impossible)
+@ acc (| add acc | add mul-pos-b | mul-pos | mul 16 a)
+| loop acc bs (mul 256 pos)
+
+?? eql (add 1  0     ) | funBody | barFromHex '''
+?? eql (add 1  bex-8 ) | funBody | barFromHex '''1
+?? eql (add 16 bex-8 ) | funBody | barFromHex '''10
+?? eql (add 1  bex-16) | funBody | barFromHex '''100
+?? eql (add 16 bex-16) | funBody | barFromHex '''1000
+?? eql 0xfe            | barNat  | barFromHex '''fe
+?? eql 0xfe00          | barNat  | barFromHex '''00fe
+?? eql 0xfe00          | barNat  | barFromHex '''00fe
+?? eql 0xfe0011        | barNat  | barFromHex '''1100fe
+
+?? eql | barCat
+       ,, x#7470ea5654831e01ffc04ee0e43a32fb
+       ,, x#90227162dc0faaa14f9627d8f5c718f7
+   (| bytesBar | blake3 | cordToRow "fdsafdsa")
+
+; All pins referenced by a val.
+= (refs top)
+| listToRowReversed
+@ ini (if isPin-top pinItem-top top)
+. NIL ini
+? (go set non)
+| if isPin-non
+   | if (listHas non set) set
+   | CONS non set
+| if isApp-non
+   @ set go-set-(car non)
+   @ set go-set-(cdr non)
+   | set
+| if isFun-non
+   | go-set-(funBody non)
+| set
+
+; Lookup into a map encoded as a list
+; of [k v] pairs.
+= (listLookup key l)
+: (x xs) <- listCase l NONE
+* [k v] x
+| if (eql k key) (SOME v)
+| listLookup key xs
+
+= (dropHighBit x)
+| sub x
+| bex | dec met-x
+
+= (mat nat)
+| ifNot nat [1 1]
+@ aSz met-nat
+@ sSz met-aSz
+@ bod | dropHighBit
+      | mix (takeBits dec-sSz aSz) (lsh nat dec-sSz)
+,, add aSz dec-(add sSz sSz)
+,, | add (bex sSz)
+   | lsh bod (inc sSz)
+
+?? all (x & eql (mat idx-0-x) idx-1-x)
+   ,, (0, [1 1])
+   ,, (1, [2 2])
+   ,, (2, [5 4])
+   ,, (3, [5 20])
+   ,, (4, [6 12])
+   ,, (5, [6 28])
+   ,, (6, [6 44])
+   ,, (7, [6 60])
+   ,, (8, [9 8])
+   ,, (9, [9 72])
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Some Monadic Operations on `Option` ;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;; sequence :: Row (Option a) -> Option (Row a)
+= (optionRowSequence results)
+. NIL listFromRow-results
+? (loop acc rest)
+: (mX more) <- listCase rest SOME-(listToRowReversed acc)
+: x <- maybeCase mX NONE
+| loop (CONS x acc) more
+
+(optionRowTraverse f xs)=(optionRowSequence map-f-xs)
+
+?? | eql NONE
+   | optionRowSequence [SOME-3 SOME-4 NONE]
+
+?? | eql SOME-[3 4 5]
+   | optionRowSequence [SOME-3 SOME-4 SOME-5]
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Parsing Nat Literals ;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+; (Char > Some Nat)
+= (readDigit char)
+| tabSwitch char NONE
+%% ="0" SOME 0
+%% ="1" SOME 1
+%% ="2" SOME 2
+%% ="3" SOME 3
+%% ="4" SOME 4
+%% ="5" SOME 5
+%% ="6" SOME 6
+%% ="7" SOME 7
+%% ="8" SOME 8
+%% ="9" SOME 9
+
+; (Nat > Maybe Nat)
+= (readNat n)
+@ mDigits (optionRowTraverse readDigit cordToRow-n)
+: nums <- maybeCase mDigits NONE
+@ f
+   & (elem rest)
+   * [pos acc] rest
+   (mul 10 pos, add acc mul-pos-elem)
+| ifNot len-nums NONE
+| SOME (idx 1)(foldr f [1 0] nums)
+
+?? eql SOME-1   readNat-"1"
+?? eql SOME-12  readNat-"12"
+?? eql SOME-123 readNat-"123"
+?? eql NONE     readNat-""
+?? eql NONE     readNat-"a"
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Macro: Atomic Switch ;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+= (readNatEither rex msg nat)
+: x <- maybeCase (readNat nat) (x & LEFT-[rex msg] x)
+| RIGHT x
+
+= (readAtomLit rex)
+@ bad (LEFT [rex "Not an atom literal (readAtomLit)"])
+! rexCase rex
+      & (rune kids heir)
+      | if  | rowOr
+            ,, neq "%" rune
+            ,, neq 0   heir
+            ,, neq 1   len-kids
+          bad
+      ! rexGetWord idx-0-kids bad
+      | (num & RIGHT num)
+  (x & (! readNatEither rex bad x))
+  (x & RIGHT-x)
+  (x & RIGHT-x)
+  (v & if isNat-v RIGHT-v bad)
+
+; readSwitchPattern
+;     :: Rex
+;     -> Rex
+;     -> Either [Rex Text] [Maybe-Nat Rex]
+= (readSwitchPattern pat)
+| if  | and (eql 1   idx-0-pat)
+            (eql "_" idx-1-pat)
+   | RIGHT NONE
+: x <- eitherOpen (readAtomLit pat)
+| RIGHT SOME-x
+
+; derpSwtichPattern :: Rex -> Rex -> Either Rex,Text [Maybe-Nat Rex])
+= (derpSwitchPattern pat exp)
+: nat <- eitherOpen (readSwitchPattern pat)
+| RIGHT-(nat, exp)
+
+;
+; unrollSlip2Tis
+;     :: (Rex -> Either Rex,Text Rex,Rex)
+;     -> Rex
+;     -> Either Rex,Text (Row Rex,Rex)
+;
+= (unrollSlip2Tis fb rex)
+. NIL rex
+? (loop acc form)
+@ fallback
+   : term <- eitherOpen (fb form)
+   | loop CONS-term-acc 0
+| if (eql 0 form)
+   | RIGHT listToRowReversed-acc
+: (n kids heir) <- rexGetNode form fallback
+| if (neq "=" n) fallback
+@ nkid len-kids
+| if (and (eql 1 nkid) (neq 0 heir))
+   @ kid idx-0-kids
+   | loop CONS-[kid heir]-acc 0
+| if (neq 2 nkid)
+   | LEFT [form "= node expects two parameters"]
+| loop CONS-kids-acc heir
+
+= (readSwitchPatterns rex)
+@ fb (form & RIGHT [(WORD "_") form])
+: clauses <- eitherOpen (unrollSlip2Tis fb rex)
+: cases <- eitherOpen (eitherRowTraverse (rowApply derpSwitchPattern) clauses)
+| RIGHT
+. [cnsE-0 %[]] cases
+| foldl
+& (acc patExp)
+* pat,exp   patExp
+* _,caseTab acc
+: k <- maybeCase pat (put acc 0 exp)
+| put acc 1 (tabPut caseTab k exp)
+
+; TODO should `simpleMacro` build the Pin + wrapper fun itself?
+= ("#switch" env nex xs mK)
+. env nex xs mK
+| simpleMacro "#switch" [RIGHT readSwitchPatterns]
+& (expr patterns)
+; trkVal %LusPamResult
+* fb,ps patterns
+@ canUseRowIndex
+   | listAnd
+   | listZipWith eql listEnumFrom-0
+   | listFromRow tabKeys-ps
+@ rowImpl | appE [cnsE-switch    expr fb vecE-(tabVals ps)]
+@ tabImpl | appE [cnsE-tabSwitch expr fb tabE-ps]
+| RIGHT
+| if canUseRowIndex rowImpl tabImpl
+
+= (switchTest x)
+# switch x
+= 346    b#346
+= 345    b#345
+= %hi    b#hi
+= "yop"  b#yop
+| b#hur
+
+?? eql b#346 switchTest-346
+?? eql b#345 switchTest-345
+?? eql b#hi  switchTest-(%hi)
+?? eql b#yop switchTest-"yop"
+?? eql b#hur switchTest-45
+
+= (switchTest2 x)
+# switch x
+= _ %Other
+= 0 %Zero
+= 1 %One
+= 2 %Two
+= 3
+| barNat b#Three
+
+?? eql %Three switchTest2-3
+?? eql %Two   switchTest2-2
+?? eql %Other switchTest2-9
+
+= (switchTest3 x)
+# switch x
+= 0 %Zero
+= 1 %One
+= 2 %Two
+%Fallback
+
+^-^ "#switch"

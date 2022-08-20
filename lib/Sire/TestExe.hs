@@ -20,7 +20,7 @@ import GHC.IO.Handle (hFlushAll)
 
 -- Globals ---------------------------------------------------------------------
 
-vMac :: IORef (Map Text Pln)
+vMac :: IORef (Map Text Fan)
 vMac = unsafePerformIO (newIORef mempty)
 
 devNull :: Handle
@@ -56,10 +56,10 @@ goldenSire vEnv pax = do
     end :: Handle -> IO ()
     end h = do
            env <- readIORef vEnv
-           pln <- pure $ fromMaybe (AT 0) (Sire.gPlun <$> lookup cab env)
+           pln <- pure $ fromMaybe (NAT 0) (Sire.gPlun <$> lookup cab env)
            has <- pinHash <$> mkPin' pln
 
            Loot.printValue h False (Just $ utf8Nat "_") pln
-           Loot.printValue h True (Just $ utf8Nat "_hash") (mkBar has)
+           Loot.printValue h True (Just $ utf8Nat "_hash") (BAR has)
            hFlushAll h >> hClose h
            Loot.validateLoot gpOutput (gpSource <> ".tmp")

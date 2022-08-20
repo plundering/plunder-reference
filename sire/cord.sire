@@ -1,30 +1,47 @@
 /+  nat   (lte gte aeq)
-/+  nat   (roundUp bitWidth blockWeld rsh dis)
+/+  nat   (add mul mod lsh met rsh dis)
+/+  nat   (roundUp takeBits)
 /+  nat   (inc div)
-/+  bool  (if and or)
-/+  row   (mkRow foldl foldr)
+/+  bool  (ifNot and or not)
+/+  list  (CONS NIL listFoldl listToRow)
+/+  row   (foldl foldr ",")
 
-(rap w v)=(foldl (blockWeld w) 0 v)
-
+;; TODO Maybe this should live in `char`?
 (isDigit c)=(and (gte c '0') (lte c '9'))
 (isUpper c)=(and (gte c 'A') (lte c 'Z'))
 (isLower c)=(and (gte c 'a') (lte c 'z'))
 (isAlpha c)=(or isUpper-c isLower-c)
 
-(implode x)=(rap 8 x)
+(cordWeld x y)=(| add x | lsh y | roundUp met-x 8)
+(cordCat vs)=(foldl cordWeld 0 vs)
+(cordTake n c)=(takeBits (mul 8 n) c)
+(cordDrop n c)=(rsh c (mul 8 n))
 
-= (explode s)
-@ wid | div (roundUp bitWidth-s 8) 8
-. 0 s (mkRow wid)
-? (loop i s acc)
-| if (aeq i wid) acc
-| loop inc-i (rsh s 8) | acc | dis 0xff s
+= (cordToList s)
+| ifNot s NIL
+| CONS (mod s 256)
+| cordToList (div s 256)
 
-(cordWeld x y)=(blockWeld 8 x y)
+(cordFromList cs)=(listFoldl cordWeld 0 cs)
 
-(cordConcat vs)=(foldr cordWeld [] vs)
+(cordToRow str)=(listToRow cordToList-str)
+(cordFromRow cs)=(cordCat cs)
 
 
-^-^  isDigit isUpper isLower isAlpha
-^-^  explode implode
-^-^  cordWeld cordConcat
+;;;;;;;;;;;
+;; Tests ;;
+;;;;;;;;;;;
+
+/+  eql
+
+?? aeq "fdsa" (cordWeld "" "fdsa")
+?? aeq "fdsa" (cordWeld "f" "dsa")
+?? aeq "fdsa" (cordWeld "fd" "sa")
+
+?? eql [%f]    (cordToRow "f")
+?? eql [255]   (cordToRow 255)
+?? eql [%f %d] (cordToRow "fd")
+
+;;;  isDigit isUpper isLower isAlpha
+;;;  cordWeld cordCat
+;;;  cordToRow cordImplode

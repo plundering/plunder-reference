@@ -1,5 +1,24 @@
 ;;;
-;;; data List a = NIL | CONS a (List a)
+;;; Just the raw constructors and pattern matches on the List data type:
+;;;
+;;;     data List a
+;;;         = NIL
+;;;         | CONS a (List a)
+;;;
+;;; Pattern matching functions are intended to be inlined to avoid
+;;; continuation functions.  For example:
+;;;
+;;;     = (lhead lis)
+;;;     ! listCase lis
+;;;         0
+;;;     & (x xs)
+;;;     (1 x)
+;;;
+;;; Expands to:
+;;;
+;;;     = (lhead lis)
+;;;     | if isNat-lis 0
+;;;     | 1 idx-0-lis
 ;;;
 
 /+ prim  (isNat)
@@ -7,6 +26,12 @@
 /+ maybe (NONE SOME fromSome)
 /+ apply (idx)
 /+ eql   (eql)
+/+ row   (",")
+
+
+;;;;;;;;;;;;;;;;;
+;; Definitions ;;
+;;;;;;;;;;;;;;;;;
 
 = NIL         0
 = (CONS x xs) [x xs]
@@ -23,17 +48,31 @@
 (listTurn l f)=(listMap f l)
 
 = (listHead l)
-! listCase l NONE (h _ & SOME h)
+! listCase l NONE
+& (h _)
+| SOME h
 
 = (listSafeHead fb l)
-! listCase l fb (x _ & x)
+! listCase l fb
+& (x _)
+| x
 
 (listUnsafeHead l)=(listSafeHead 0)
+
+
+;;;;;;;;;;;
+;; Tests ;;
+;;;;;;;;;;;
 
 ?? eql NONE   | listHead NIL
 ?? eql SOME-3 | listHead (CONS 3 (CONS 4 NIL))
 ?? eql 5      | fromSome 4 (SOME 5)
 ?? eql 4      | fromSome 4 NONE
+
+
+;;;;;;;;;;;;;
+;; Exports ;;
+;;;;;;;;;;;;;
 
 ^-^ NIL CONS
 ^-^ listCase
